@@ -1,0 +1,24 @@
+name: YouTube-Diagnose
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['tool/diag.dart']
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - name: Diagnose
+        run: |
+          dart run tool/diag.dart || true
+          [ -f diag.txt ] || echo "keine Ausgabe" > diag.txt
+          msg=$(sed 's/%/%25/g' diag.txt | cut -c1-400 | awk 'BEGIN{ORS="%0A"}{print}')
+          echo "::warning title=diag::$msg"

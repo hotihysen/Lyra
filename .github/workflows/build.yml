@@ -3,6 +3,7 @@ name: Lyra APK bauen
 on:
   push:
     branches: [main]
+    paths-ignore: ['tool/**', '.github/workflows/diag.yml']
   workflow_dispatch:
 
 permissions:
