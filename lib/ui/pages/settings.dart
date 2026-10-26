@@ -39,7 +39,8 @@ class SettingsPage extends StatelessWidget {
               onTap: () => checkForUpdate(context),
             ),
             SwitchListTile(
-              title: const Text('Beim Start nach Updates suchen'),
+              title: const Text('Automatisch aktualisieren'),
+              subtitle: const Text('Neue Versionen beim Start laden und installieren', style: TextStyle(color: kMuted)),
               value: s.autoUpdate,
               activeColor: accent,
               onChanged: s.setAutoUpdate,

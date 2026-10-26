@@ -40,7 +40,7 @@ class ShellState extends State<Shell> {
       Future.delayed(const Duration(seconds: 3), () async {
         await Updater.checkSilently();
         final info = Updater.available.value;
-        if (info != null && mounted) showUpdateDialogOnce(context, info);
+        if (info != null && mounted) runUpdate(context, info);
       });
     }
   }

@@ -40,7 +40,7 @@ class YtResolved {
 /// Datei, die im Hintergrund geladen wird, während der Player schon daraus liest.
 class _Progressive {
   final File file;
-  final int total;
+  int total;
   int written = 0;
   bool done = false;
   Object? error;
@@ -59,6 +59,53 @@ class _Progressive {
       done = true;
     } catch (e) {
       error = e;
+    } finally {
+      await raf.close();
+      _changes.add(null);
+    }
+  }
+
+  /// Lädt per HTTP und setzt nach Verbindungsabbrüchen an derselben Stelle fort.
+  Future<void> runHttp(Uri url, Map<String, String> headers) async {
+    final raf = await file.open(mode: FileMode.write);
+    var failures = 0;
+    try {
+      while (true) {
+        final client = http.Client();
+        try {
+          final req = http.Request('GET', url)..headers.addAll({...headers, 'Range': 'bytes=$written-'});
+          final res = await client.send(req).timeout(const Duration(seconds: 20));
+          if (res.statusCode != 200 && res.statusCode != 206) throw Exception('Server ${res.statusCode}');
+          if (res.statusCode == 200 && written > 0) {
+            // Server kann nicht fortsetzen: von vorne
+            written = 0;
+            await raf.setPosition(0);
+          }
+          if (total <= 0) {
+            final cr = res.headers['content-range'];
+            final m = cr == null ? null : RegExp(r'/(\d+)').firstMatch(cr);
+            total = m != null ? int.parse(m.group(1)!) : (res.contentLength ?? 0) + written;
+          }
+          await for (final chunk in res.stream.timeout(const Duration(seconds: 20))) {
+            await raf.writeFrom(chunk);
+            written += chunk.length;
+            failures = 0;
+            _changes.add(null);
+          }
+          if (total > 0 && written < total) throw Exception('Verbindung abgebrochen');
+          done = true;
+          return;
+        } catch (e) {
+          failures++;
+          if (failures > 6) {
+            error = e;
+            return;
+          }
+          await Future.delayed(Duration(milliseconds: 600 * failures));
+        } finally {
+          client.close();
+        }
+      }
     } finally {
       await raf.close();
       _changes.add(null);
@@ -232,7 +279,21 @@ class YT {
       try {
         final a = await Invidious.audio(vid, errors: errors);
         Store.instance.setYt(t.id, vid);
-        return AudioSource.uri(a.url, headers: const {'User-Agent': 'Mozilla/5.0 (Linux; Android 14) Lyra/1.0'});
+        final dir = await getTemporaryDirectory();
+        final ext = a.mime == 'audio/webm' ? 'webm' : 'm4a';
+        final p = _Progressive(File('${dir.path}/inv_${t.id}.$ext'), a.size);
+        unawaited(p.runHttp(a.url, const {'User-Agent': 'Mozilla/5.0 (Linux; Android 14) Lyra/1.0'}));
+        await p.waitForStart();
+        _cache[t.id] = p;
+        _trimCache();
+        if (p.total <= 0) {
+          while (!p.done && p.error == null) {
+            await p.waitForChange();
+          }
+          if (p.error != null) throw p.error!;
+          return AudioSource.file(p.file.path);
+        }
+        return _ProgressiveSource(p, a.mime);
       } catch (e) {
         errors.add('Invidious: ${_short(e)}');
       }
