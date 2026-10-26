@@ -22,6 +22,15 @@ a = re.sub(r"minSdk\s*=\s*[^\n]+", "minSdk = 26", a, count=1)
 if "isCoreLibraryDesugaringEnabled" not in a:
     a = a.replace("compileOptions {", "compileOptions {\n        isCoreLibraryDesugaringEnabled = true", 1)
 a += """
+// Wie SimpMusic: PipePipe bringt protobuf-java, BravePipe protobuf-javalite; nur javalite behalten.
+// Und nanojson auf den Stand zwingen, den beide Extraktoren erwarten.
+configurations.all {
+    exclude(group = "com.google.protobuf", module = "protobuf-java")
+    resolutionStrategy {
+        force("com.github.TeamNewPipe:nanojson:c7a6c1c08d16b6d5ecded34758e6415e07be2166")
+    }
+}
+
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
