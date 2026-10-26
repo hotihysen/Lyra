@@ -1,8 +1,10 @@
 name: Lyra APK bauen
 
+# main: Tests, Build, APK-Prüfung und Release.
+# Andere Branches: Tests, Build und APK-Prüfung, nur als Artefakt, KEIN Release.
 on:
   push:
-    branches: [main]
+    branches: ['**']
     paths-ignore: ['tool/**', '.github/workflows/diag.yml']
   workflow_dispatch:
 
@@ -30,10 +32,18 @@ jobs:
           flutter create --platforms=android --org ch.hysen --project-name lyra .
           python3 ci/patch_android.py
 
-      - name: Fester Signaturschlüssel, damit Updates über die alte Version installierbar sind
-        run: mkdir -p ~/.android && cp ci/debug.keystore ~/.android/debug.keystore
-
       - run: flutter pub get
+
+      - name: Tests der Update-Logik
+        run: |
+          set -o pipefail
+          if flutter test test/update_logic_test.dart --reporter expanded 2>&1 | tee test.log; then
+            echo "::notice title=Tests::$(grep -E 'All tests passed|\+[0-9]+' test.log | tail -1 | sed 's/%/%25/g')"
+          else
+            msg=$(grep -E "\[E\]|Expected|Actual|Error|FAILED|Some tests failed" test.log | head -30 | sed 's/%/%25/g' | cut -c1-300 | awk 'BEGIN{ORS="%0A"}{print}')
+            echo "::error title=Tests fehlgeschlagen::$msg"
+            exit 1
+          fi
 
       - name: APK bauen
         run: |
@@ -53,7 +63,19 @@ jobs:
       - name: APK umbenennen
         run: cp build/app/outputs/flutter-apk/app-release.apk Lyra-1.0.${{ github.run_number }}.apk
 
-      - name: Release veröffentlichen
+      - name: APK prüfen (Paket, Version, Signatur)
+        run: bash ci/apk_check.sh Lyra-1.0.${{ github.run_number }}.apk ${{ github.run_number }}
+
+      - name: Test-APK als Artefakt (nur Branches)
+        if: github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lyra-1.0.${{ github.run_number }}-test
+          path: Lyra-1.0.${{ github.run_number }}.apk
+          retention-days: 14
+
+      - name: Release veröffentlichen (nur main)
+        if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v1.0.${{ github.run_number }}

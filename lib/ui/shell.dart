@@ -37,12 +37,24 @@ class ShellState extends State<Shell> {
     super.initState();
     audio.error.addListener(_showError);
     Future.delayed(const Duration(milliseconds: 800), _showLastCrash);
-    if (Store.instance.autoUpdate) {
-      Future.delayed(const Duration(seconds: 3), () async {
-        await Updater.checkSilently();
-        final info = Updater.available.value;
-        if (info != null && mounted) runUpdate(context, info);
-      });
+    _initUpdates();
+  }
+
+  Future<void> _initUpdates() async {
+    await Updater.init();
+    if (!mounted) return;
+    final r = Updater.restartResult.value;
+    if (r != null) {
+      Updater.restartResult.value = null;
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(r), duration: const Duration(seconds: 6)));
+    }
+    if (!Store.instance.autoUpdate) return;
+    await Future.delayed(const Duration(seconds: 3));
+    try {
+      final info = await Updater.check();
+      if (info != null && mounted) await showUpdateDialogOnce(context, info);
+    } catch (_) {
+      // Ohne Netz kein Hinweis beim Start; manuell über die Einstellungen prüfbar.
     }
   }
 

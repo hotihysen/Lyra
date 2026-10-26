@@ -1,22 +1,41 @@
-name: Quellen-Diagnose
+name: Signatur-Diagnose
 
+# Prüft, mit welchem Zertifikat die veröffentlichten Releases signiert sind
+# und wo der Build den Debug-Schlüssel sucht. Nur manuell auszulösen.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['tool/**']
+
+permissions:
+  contents: read
 
 jobs:
   diag:
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
-      - name: Diagnose
+      - name: Umgebung
         run: |
-          python3 tool/diag2.py || true
-          [ -f diag.txt ] || echo "keine Ausgabe" > diag.txt
-          split -l 12 diag.txt part_
-          for f in part_*; do
-            msg=$(sed 's/%/%25/g' "$f" | cut -c1-300 | awk 'BEGIN{ORS="%0A"}{print}')
-            echo "::warning title=$f::$msg"
+          {
+            echo "HOME=$HOME"
+            env | grep -E '^ANDROID' | sort
+            ls -la ~/.android 2>&1 | head
+          } > env.txt
+          msg=$(sed 's/%/%25/g' env.txt | cut -c1-300 | awk 'BEGIN{ORS="%0A"}{print}')
+          echo "::notice title=Umgebung::$msg"
+      - name: Zertifikate der Releases
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          KEY=$(keytool -list -v -keystore ci/debug.keystore -storepass android -alias androiddebugkey | sed -n 's/.*SHA256: //p' | head -1 | tr -d ':' | tr 'A-F' 'a-f')
+          echo "ci/debug.keystore: ${KEY:0:16}" > certs.txt
+          for tag in $(gh release list -R "$GITHUB_REPOSITORY" --limit 30 --json tagName -q '.[].tagName'); do
+            gh release download "$tag" -R "$GITHUB_REPOSITORY" -p '*.apk' -D "r_$tag" >/dev/null 2>&1 || { echo "$tag: Download fehlgeschlagen" >> certs.txt; continue; }
+            f=$(ls r_$tag/*.apk | head -1)
+            c=$("$BT/apksigner" verify --print-certs "$f" | sed -n 's/.*certificate SHA-256 digest: //p' | head -1 | tr -d ':')
+            vc=$("$BT/aapt2" dump badging "$f" | head -1 | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p")
+            echo "$tag: versionCode $vc, Zertifikat ${c:0:16}" >> certs.txt
           done
+          cat certs.txt
+          msg=$(sed 's/%/%25/g' certs.txt | awk 'BEGIN{ORS="%0A"}{print}')
+          echo "::notice title=Zertifikate::$msg"

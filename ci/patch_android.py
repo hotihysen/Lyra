@@ -19,9 +19,27 @@ open(top, "w").write(s)
 
 a = open(app).read()
 a = re.sub(r"minSdk\s*=\s*[^\n]+", "minSdk = 26", a, count=1)
+# Fester Signaturschlüssel ausdrücklich setzen. Vorher verliess sich der Build auf
+# ~/.android/debug.keystore; tatsächlich wurde bei jedem Lauf ein neuer Schlüssel erzeugt,
+# und jede Version hatte ein anderes Zertifikat (Updates unmöglich).
+if 'create("lyra")' not in a:
+    a = a.replace("    buildTypes {", '''    signingConfigs {
+        create("lyra") {
+            storeFile = rootProject.file("../ci/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
+    }
+
+    buildTypes {''', 1)
+if 'signingConfigs.getByName("debug")' not in a:
+    sys.exit("Release-Signierung im Gradle-Gerüst nicht gefunden")
 # Keine Code-Verkleinerung: die Extraktoren nutzen Reflection und R8 bricht sonst ab
 a = a.replace('signingConfig = signingConfigs.getByName("debug")',
-              'signingConfig = signingConfigs.getByName("debug")\n            isMinifyEnabled = false\n            isShrinkResources = false', 1)
+              'signingConfig = signingConfigs.getByName("lyra")\n            isMinifyEnabled = false\n            isShrinkResources = false', 1)
+if 'create("lyra")' not in a:
+    sys.exit("Signatur-Konfiguration konnte nicht eingefügt werden")
 if "isCoreLibraryDesugaringEnabled" not in a:
     a = a.replace("compileOptions {", "compileOptions {\n        isCoreLibraryDesugaringEnabled = true", 1)
 a += """
