@@ -505,4 +505,121 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
     final pos = _p.position;
     if (pos > const Duration(seconds: 2)) Store.instance.setProgress(t, pos);
   }
+
+  // ---------- Android Auto: Menü zum Blättern, Abspielen und Sprachsuche ----------
+
+  static const _autoRoot = AudioService.browsableRootId;
+  final _autoSearch = <String, Track>{};
+
+  MediaItem _folder(String id, String title, {String? subtitle}) =>
+      MediaItem(id: id, title: title, displaySubtitle: subtitle, playable: false);
+
+  MediaItem _autoItem(String prefix, Track t) => MediaItem(
+        id: '$prefix|${t.id}',
+        title: t.title,
+        artist: t.isBook ? t.album : t.artist,
+        album: t.album,
+        artUri: t.cover.isEmpty ? null : Uri.parse(t.cover),
+        duration: t.duration > 0 ? Duration(seconds: t.duration) : null,
+        playable: true,
+      );
+
+  /// Liste und Präfix zu einem Ordner des Menüs.
+  List<Track>? _autoList(String folder) {
+    final s = Store.instance;
+    if (folder == 'recent') return s.recent.where((t) => !t.isBook).toList();
+    if (folder == 'liked') return List.of(s.liked);
+    if (folder == 'downloads') return s.downloads.values.toList();
+    if (folder.startsWith('pl:')) return s.playlist(folder.substring(3))?.tracks.toList();
+    if (folder.startsWith('book:')) return s.books[folder]?.chapters.toList();
+    if (folder == 'search') return _autoSearch.values.toList();
+    return null;
+  }
+
+  @override
+  Future<List<MediaItem>> getChildren(String parentMediaId, [Map<String, dynamic>? options]) async {
+    final s = Store.instance;
+    switch (parentMediaId) {
+      case _autoRoot:
+        return [
+          _folder('recent', 'Zuletzt gehört'),
+          _folder('liked', 'Favoriten', subtitle: '${s.liked.length} Titel'),
+          _folder('playlists', 'Playlists', subtitle: '${s.playlists.length} Playlists'),
+          _folder('downloads', 'Downloads', subtitle: '${s.downloads.length} Titel offline'),
+          _folder('books', 'Hörbücher'),
+        ];
+      case AudioService.recentRootId:
+        // Für «Weiterhören» im Auto: der zuletzt gespielte Titel
+        final cur = current.value ?? (s.recent.isNotEmpty ? s.recent.first : null);
+        return cur == null ? [] : [_autoItem('recent', cur)];
+      case 'playlists':
+        return [
+          for (final p in s.playlists) _folder('pl:${p.id}', p.name, subtitle: '${p.tracks.length} Titel'),
+        ];
+      case 'books':
+        final books = [...s.continueBooks(), ...s.books.values.where((b) => !s.continueBooks().any((c) => c.id == b.id))];
+        return [for (final b in books) _folder(b.id, b.title, subtitle: b.author)];
+    }
+    final list = _autoList(parentMediaId);
+    if (list == null) return [];
+    return [for (final t in list.take(200)) _autoItem(parentMediaId, t)];
+  }
+
+  @override
+  Future<MediaItem?> getMediaItem(String mediaId) async {
+    final i = mediaId.indexOf('|');
+    if (i < 0) return null;
+    final list = _autoList(mediaId.substring(0, i)) ?? const <Track>[];
+    final id = mediaId.substring(i + 1);
+    for (final t in list) {
+      if (t.id == id) return _autoItem(mediaId.substring(0, i), t);
+    }
+    return null;
+  }
+
+  @override
+  Future<void> playFromMediaId(String mediaId, [Map<String, dynamic>? extras]) async {
+    final i = mediaId.indexOf('|');
+    if (i < 0) return;
+    final folder = mediaId.substring(0, i);
+    final id = mediaId.substring(i + 1);
+    final list = _autoList(folder);
+    if (list == null || list.isEmpty) return;
+    final start = list.indexWhere((t) => t.id == id);
+    if (folder.startsWith('book:')) Store.instance.saveBook(Store.instance.books[folder]!);
+    await playTracks(list, start: start < 0 ? 0 : start);
+  }
+
+  @override
+  Future<List<MediaItem>> search(String query, [Map<String, dynamic>? extras]) async {
+    if (query.trim().isEmpty) return [];
+    try {
+      final r = await Deezer.searchTracks(query.trim());
+      _autoSearch
+        ..clear()
+        ..addEntries(r.take(30).map((t) => MapEntry(t.id, t)));
+      return [for (final t in _autoSearch.values) _autoItem('search', t)];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /// Sprachbefehl wie «Spiele … auf Lyra».
+  @override
+  Future<void> playFromSearch(String query, [Map<String, dynamic>? extras]) async {
+    final q = query.trim();
+    if (q.isEmpty) {
+      // Ohne Suchbegriff: Favoriten, sonst Zuletzt gehört
+      final s = Store.instance;
+      final list = s.liked.isNotEmpty ? s.liked : s.recent.where((t) => !t.isBook).toList();
+      if (list.isNotEmpty) await playShuffled(list);
+      return;
+    }
+    try {
+      final r = await Deezer.searchTracks(q);
+      if (r.isEmpty) return;
+      // Treffer der Suche als Warteschlange, bester Treffer zuerst
+      await playTracks(r.take(20).toList());
+    } catch (_) {}
+  }
 }
