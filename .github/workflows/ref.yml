@@ -1,0 +1,17 @@
+name: WAVE-Referenz holen
+on:
+  push:
+    branches: [tools-wave-ref]
+permissions:
+  contents: write
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          git clone --depth 1 https://github.com/ayman708-UX/WAVE.git wave
+          cd wave && rm -rf .git .github android ios linux macos windows web installer *.png
+          git init -q -b wave-ref
+          git add -A
+          git -c user.name=ci -c user.email=ci@local commit -qm "WAVE Referenzcode (GPL-2.0, nur zum Vergleich)"
+          git push -f "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git" wave-ref
