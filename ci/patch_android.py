@@ -19,6 +19,9 @@ open(top, "w").write(s)
 
 a = open(app).read()
 a = re.sub(r"minSdk\s*=\s*[^\n]+", "minSdk = 26", a, count=1)
+# Keine Code-Verkleinerung: die Extraktoren nutzen Reflection und R8 bricht sonst ab
+a = a.replace('signingConfig = signingConfigs.getByName("debug")',
+              'signingConfig = signingConfigs.getByName("debug")\n            isMinifyEnabled = false\n            isShrinkResources = false', 1)
 if "isCoreLibraryDesugaringEnabled" not in a:
     a = a.replace("compileOptions {", "compileOptions {\n        isCoreLibraryDesugaringEnabled = true", 1)
 a += """
