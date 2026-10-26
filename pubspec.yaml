@@ -1,0 +1,24 @@
+name: lyra
+description: Lyra, Musik und Hörbücher. Privates Lernprojekt.
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.0
+
+dependencies:
+  flutter:
+    sdk: flutter
+  just_audio: ^0.10.0
+  audio_service: ^0.18.18
+  audio_session: any
+  youtube_explode_dart: ^3.1.0
+  http: ^1.2.0
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+  path_provider: ^2.1.5
+  cached_network_image: ^3.4.1
+  google_fonts: ^8.1.0
+
+flutter:
+  uses-material-design: true

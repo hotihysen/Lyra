@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="lyra_bg">#0E0E10</color>
+    <color name="lyra_start">#8B5CF6</color>
+    <color name="lyra_end">#EC4899</color>
+</resources>
