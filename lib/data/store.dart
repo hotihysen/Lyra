@@ -26,6 +26,7 @@ class Store extends ChangeNotifier {
   Map<String, Map> progress = {};
   int crossfade = 4;
   String? ytClient;
+  String? invHost;
   bool autoUpdate = true;
 
   Future<void> init() async {
@@ -33,6 +34,7 @@ class Store extends ChangeNotifier {
     accentIndex.value = (_box.get('accent') as int?) ?? 0;
     crossfade = (_box.get('crossfade') as int?) ?? 4;
     ytClient = _box.get('ytClient') as String?;
+    invHost = _box.get('invHost') as String?;
     autoUpdate = (_box.get('autoUpdate') as bool?) ?? true;
     liked = _list('liked', Track.fromJson);
     likedAlbums = _list('likedAlbums', Album.fromJson);
@@ -163,6 +165,11 @@ class Store extends ChangeNotifier {
   void setYtClient(String c) {
     ytClient = c;
     _box.put('ytClient', c);
+  }
+
+  void setInvHost(String h) {
+    invHost = h;
+    _box.put('invHost', h);
   }
 
   void setAutoUpdate(bool v) {

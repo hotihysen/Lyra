@@ -2,11 +2,13 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../data/models.dart';
+import 'invidious.dart';
 import '../data/store.dart';
 
 /// Ein Abrufweg zu YouTube (verschiedene App-Kennungen werden unterschiedlich behandelt).
@@ -187,9 +189,9 @@ class YT {
   }
 
   /// Probiert Videos und Abrufwege der Reihe nach durch, bis ein Stream wirklich Daten liefert.
-  static Future<(YtResolved, _Progressive)> _open(Track t) async {
-    final errors = <String>[];
-    final ids = await candidates(t);
+  static Future<(YtResolved, _Progressive)> _open(Track t, {List<String>? ids, List<String>? earlier}) async {
+    final errors = <String>[...?earlier];
+    ids ??= await candidates(t);
     if (ids.isEmpty) throw Exception('Kein passendes Video gefunden');
     for (final vid in ids.take(3)) {
       for (final o in _orderedClients()) {
@@ -214,7 +216,7 @@ class YT {
       }
     }
     lastError = errors.join('\n');
-    throw Exception(errors.isEmpty ? 'unbekannter Fehler' : errors.first);
+    throw Exception('Kein Abrufweg hat Audio geliefert');
   }
 
   /// Audioquelle für den Player: wird gestreamt und gleichzeitig zwischengespeichert.
@@ -223,7 +225,20 @@ class YT {
     if (old != null && old.done && old.file.existsSync()) {
       return AudioSource.file(old.file.path);
     }
-    final (r, p) = await _open(t);
+    final errors = <String>[];
+    final ids = await candidates(t);
+    if (ids.isEmpty) throw Exception('Kein passendes Video gefunden');
+    for (final vid in ids.take(2)) {
+      try {
+        final a = await Invidious.audio(vid, errors: errors);
+        Store.instance.setYt(t.id, vid);
+        return AudioSource.uri(a.url, headers: const {'User-Agent': 'Mozilla/5.0 (Linux; Android 14) Lyra/1.0'});
+      } catch (e) {
+        errors.add('Invidious: ${_short(e)}');
+      }
+    }
+    // Reserve: direkt bei YouTube
+    final (r, p) = await _open(t, ids: ids.take(1).toList(), earlier: errors);
     _cache[t.id] = p;
     _trimCache();
     if (p.total <= 0) {
@@ -257,6 +272,14 @@ class YT {
       onProgress(1);
       return;
     }
+    try {
+      final ids = await candidates(t);
+      if (ids.isNotEmpty) {
+        final a = await Invidious.audio(ids.first);
+        await _httpDownload(a.url, f, onProgress);
+        return;
+      }
+    } catch (_) {}
     final (_, p) = await _open(t);
     _cache[t.id] = p;
     while (!p.done && p.error == null) {
@@ -265,6 +288,31 @@ class YT {
     }
     if (p.error != null) throw p.error!;
     await p.file.copy(f.path);
+  }
+
+  static Future<void> _httpDownload(Uri u, File f, void Function(double) onP) async {
+    final client = http.Client();
+    try {
+      final res = await client.send(http.Request('GET', u)..headers['User-Agent'] = 'Mozilla/5.0 (Linux; Android 14) Lyra/1.0');
+      if (res.statusCode >= 400) throw Exception('HTTP ${res.statusCode}');
+      final total = res.contentLength ?? 0;
+      final tmp = File('${f.path}.part');
+      final sink = tmp.openWrite();
+      var got = 0;
+      try {
+        await for (final c in res.stream) {
+          got += c.length;
+          sink.add(c);
+          if (total > 0) onP(got / total);
+        }
+      } finally {
+        await sink.close();
+      }
+      if (got == 0) throw Exception('leere Datei');
+      await tmp.rename(f.path);
+    } finally {
+      client.close();
+    }
   }
 
   // ---------- Diagnose (in den Einstellungen) ----------
@@ -285,7 +333,21 @@ class YT {
       add('Suche: FEHLER ${_short(e)}');
       return out;
     }
-    for (final o in ytClientOptions) {
+    final invErr = <String>[];
+    try {
+      final a = await Invidious.audio(vid, errors: invErr);
+      for (final e in invErr) {
+        add('Invidious ${e.replaceAll('Exception: ', '')} (FEHLER)');
+      }
+      add('Invidious: ok über ${Uri.parse(a.host).host} (${a.mime})');
+    } catch (e) {
+      for (final e in invErr) {
+        add('Invidious ${e.replaceAll('Exception: ', '')} (FEHLER)');
+      }
+      add('Invidious: FEHLER ${_short(e)}');
+    }
+    add('Direkt bei YouTube (Reserve):');
+    for (final o in ytClientOptions.take(3)) {
       try {
         final r = await _manifest(vid, o);
         var got = 0;
