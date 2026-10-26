@@ -36,6 +36,7 @@ class ShellState extends State<Shell> {
   void initState() {
     super.initState();
     audio.error.addListener(_showError);
+    Future.delayed(const Duration(milliseconds: 800), _showLastCrash);
     if (Store.instance.autoUpdate) {
       Future.delayed(const Duration(seconds: 3), () async {
         await Updater.checkSilently();
@@ -49,6 +50,38 @@ class ShellState extends State<Shell> {
   void dispose() {
     audio.error.removeListener(_showError);
     super.dispose();
+  }
+
+  Future<void> _showLastCrash() async {
+    String? text;
+    try {
+      text = await const MethodChannel('ch.hysen.lyra/extract').invokeMethod<String>('lastCrash');
+    } catch (_) {}
+    if (text == null || !mounted) return;
+    final crash = text;
+    showDialog(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Lyra ist abgestürzt'),
+        content: SizedBox(
+          width: double.maxFinite,
+          height: 320,
+          child: SingleChildScrollView(
+            child: SelectableText(crash, style: const TextStyle(fontFamily: 'monospace', fontSize: 11)),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c), child: const Text('Schliessen')),
+          FilledButton(
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: crash));
+              Navigator.pop(c);
+            },
+            child: const Text('Kopieren'),
+          ),
+        ],
+      ),
+    );
   }
 
   void _showError() {

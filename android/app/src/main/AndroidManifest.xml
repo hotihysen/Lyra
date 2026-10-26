@@ -11,7 +11,7 @@
 
     <application
         android:label="Lyra"
-        android:name="${applicationName}"
+        android:name=".LyraApp"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher"
         android:usesCleartextTraffic="true">

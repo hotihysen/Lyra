@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:just_audio/just_audio.dart';
 import 'package:path_provider/path_provider.dart';
@@ -182,6 +183,27 @@ class YT {
   static String? preferredClient;
   static String lastError = '';
 
+  static const _ch = MethodChannel('ch.hysen.lyra/extract');
+
+  /// Native Extraktion (PipePipe / BravePipe) im Android-Teil der App.
+  static Future<({Uri url, String mime, String ext, String ua, String source})> native(String vid) async {
+    try {
+      final r = await _ch.invokeMapMethod<String, dynamic>('audio', {'id': vid}).timeout(const Duration(seconds: 40));
+      if (r == null) throw Exception('keine Antwort');
+      final itag = (r['itag'] as num?)?.toInt() ?? 140;
+      final webm = itag == 251 || itag == 250 || itag == 249;
+      return (
+        url: Uri.parse('${r['url']}'),
+        mime: webm ? 'audio/webm' : 'audio/mp4',
+        ext: webm ? 'webm' : 'm4a',
+        ua: '${r['ua'] ?? 'Mozilla/5.0'}',
+        source: '${r['source'] ?? ''}',
+      );
+    } on PlatformException catch (e) {
+      throw Exception(e.message ?? e.code);
+    }
+  }
+
   static int _score(Track t, Video v) {
     final d = v.duration?.inSeconds ?? 0;
     if (d == 0) return 1 << 20;
@@ -275,6 +297,30 @@ class YT {
     final errors = <String>[];
     final ids = await candidates(t);
     if (ids.isEmpty) throw Exception('Kein passendes Video gefunden');
+    // 1. Wie SimpMusic: native Extraktoren (PipePipe, BravePipe)
+    for (final vid in ids.take(2)) {
+      try {
+        final n = await native(vid);
+        Store.instance.setYt(t.id, vid);
+        final dir = await getTemporaryDirectory();
+        final p = _Progressive(File('${dir.path}/yt_${t.id}.${n.ext}'), 0);
+        unawaited(p.runHttp(n.url, {'User-Agent': n.ua}));
+        await p.waitForStart();
+        _cache[t.id] = p;
+        _trimCache();
+        if (p.total <= 0) {
+          while (!p.done && p.error == null) {
+            await p.waitForChange();
+          }
+          if (p.error != null) throw p.error!;
+          return AudioSource.file(p.file.path);
+        }
+        return _ProgressiveSource(p, n.mime);
+      } catch (e) {
+        errors.add('Extraktor: ${_short(e)}');
+      }
+    }
+    // 2. Invidious-Server
     for (final vid in ids.take(2)) {
       try {
         final a = await Invidious.audio(vid, errors: errors);
@@ -336,6 +382,19 @@ class YT {
     try {
       final ids = await candidates(t);
       if (ids.isNotEmpty) {
+        try {
+          final n = await native(ids.first);
+          final p = _Progressive(File('${f.path}.part'), 0);
+          final run = p.runHttp(n.url, {'User-Agent': n.ua});
+          while (!p.done && p.error == null) {
+            if (p.total > 0) onProgress(p.written / p.total);
+            await Future.any([run, p.waitForChange()]);
+          }
+          if (p.error == null && p.written > 0) {
+            await p.file.rename(f.path);
+            return;
+          }
+        } catch (_) {}
         final a = await Invidious.audio(ids.first);
         await _httpDownload(a.url, f, onProgress);
         return;
@@ -393,6 +452,15 @@ class YT {
     } catch (e) {
       add('Suche: FEHLER ${_short(e)}');
       return out;
+    }
+    try {
+      final sw = Stopwatch()..start();
+      final n = await native(vid);
+      add('Extraktor (wie SimpMusic): ok über ${n.source} in ${(sw.elapsedMilliseconds / 1000).toStringAsFixed(1)} s');
+    } catch (e) {
+      for (final l in e.toString().replaceFirst('Exception: ', '').split('\n')) {
+        add('Extraktor FEHLER $l');
+      }
     }
     final invErr = <String>[];
     try {

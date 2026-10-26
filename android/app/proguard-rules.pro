@@ -1,0 +1,16 @@
+## YouTube-Extraktoren (wie in SimpMusic)
+-keep class org.schabi.newpipe.extractor.** { *; }
+-keep class dev.maxrave.pipepipe.extractor.** { *; }
+-keep class org.mozilla.javascript.** { *; }
+-keep class org.mozilla.classfile.ClassFileWriter
+-dontwarn org.mozilla.javascript.tools.**
+-dontwarn javax.script.**
+-dontwarn java.beans.**
+-dontwarn org.jsoup.**
+-dontwarn com.google.re2j.**
+-dontwarn org.slf4j.**
+-dontwarn okhttp3.internal.platform.**
+-dontwarn org.conscrypt.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.openjsse.**
+-keep class ch.hysen.lyra.** { *; }

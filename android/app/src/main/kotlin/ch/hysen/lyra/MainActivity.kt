@@ -11,10 +11,33 @@ import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.util.concurrent.Executors
 
 class MainActivity : AudioServiceActivity() {
+    private val worker = Executors.newFixedThreadPool(3)
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ch.hysen.lyra/extract")
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "audio" -> {
+                        val id = call.argument<String>("id") ?: ""
+                        worker.execute {
+                            try {
+                                val a = Extractor.audio(id)
+                                runOnUiThread {
+                                    result.success(mapOf("url" to a.url, "itag" to a.itag, "source" to a.source, "ua" to Extractor.USER_AGENT))
+                                }
+                            } catch (t: Throwable) {
+                                runOnUiThread { result.error("extract", t.message ?: t.javaClass.simpleName, null) }
+                            }
+                        }
+                    }
+                    "lastCrash" -> result.success(LyraApp.takeCrash(application))
+                    else -> result.notImplemented()
+                }
+            }
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "ch.hysen.lyra/update")
             .setMethodCallHandler { call, result ->
                 try {
