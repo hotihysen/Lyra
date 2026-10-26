@@ -527,6 +527,7 @@ class CardItem {
   final String subtitle;
   final bool circle;
   final VoidCallback onTap;
+  final VoidCallback? onLongPress;
   final IconData fallback;
   const CardItem({
     required this.image,
@@ -534,6 +535,7 @@ class CardItem {
     this.subtitle = '',
     this.circle = false,
     required this.onTap,
+    this.onLongPress,
     this.fallback = Icons.music_note_rounded,
   });
 }
@@ -542,7 +544,8 @@ class Carousel extends StatelessWidget {
   final String title;
   final List<CardItem> items;
   final double size;
-  const Carousel({super.key, required this.title, required this.items, this.size = 148});
+  final Widget? trailing;
+  const Carousel({super.key, required this.title, required this.items, this.size = 148, this.trailing});
 
   @override
   Widget build(BuildContext context) {
@@ -550,7 +553,7 @@ class Carousel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SectionTitle(title),
+        SectionTitle(title, trailing: trailing),
         SizedBox(
           height: size + 54,
           child: ListView.separated(
@@ -562,6 +565,7 @@ class Carousel extends StatelessWidget {
               final it = items[i];
               return GestureDetector(
                 onTap: it.onTap,
+                onLongPress: it.onLongPress,
                 child: SizedBox(
                   width: size,
                   child: Column(

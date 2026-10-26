@@ -137,6 +137,10 @@ class _HomePageState extends State<HomePage> {
                 Carousel(
                   title: 'Zuletzt gehört',
                   size: 130,
+                  trailing: TextButton(
+                    onPressed: () => _confirmClearRecent(context),
+                    child: const Text('Leeren', style: TextStyle(color: kMuted, fontWeight: FontWeight.w700)),
+                  ),
                   items: [
                     for (var i = 0; i < s.recent.length && i < 15; i++)
                       CardItem(
@@ -145,6 +149,7 @@ class _HomePageState extends State<HomePage> {
                         subtitle: s.recent[i].isBook ? s.recent[i].album : s.recent[i].artist,
                         fallback: s.recent[i].isBook ? Icons.menu_book_rounded : Icons.music_note_rounded,
                         onTap: () => audio.playTracks([s.recent[i]]),
+                        onLongPress: () => _recentMenu(context, s.recent[i]),
                       ),
                   ],
                 ),
@@ -235,6 +240,60 @@ class _HomePageState extends State<HomePage> {
       ),
     );
   }
+}
+
+void _recentMenu(BuildContext context, Track t) {
+  showModalBottomSheet(
+    context: context,
+    useRootNavigator: true,
+    backgroundColor: kSurface,
+    shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(16))),
+    builder: (c) => SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: Cover(t.cover, size: 48),
+            title: Text(t.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w700)),
+            subtitle: Text(t.isBook ? t.album : t.artist, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+          const Divider(height: 1, color: Colors.white10),
+          ListTile(
+            leading: const Icon(Icons.history_toggle_off_rounded),
+            title: const Text('Aus «Zuletzt gehört» entfernen'),
+            onTap: () {
+              Navigator.pop(c);
+              Store.instance.removeRecent(t);
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.more_horiz_rounded),
+            title: const Text('Weitere Optionen'),
+            onTap: () {
+              Navigator.pop(c);
+              showTrackMenu(context, t);
+            },
+          ),
+          const SizedBox(height: 8),
+        ],
+      ),
+    ),
+  );
+}
+
+Future<void> _confirmClearRecent(BuildContext context) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (c) => AlertDialog(
+      title: const Text('Verlauf leeren?'),
+      content: const Text('Alle Titel unter «Zuletzt gehört» werden entfernt. Bibliothek und Downloads bleiben erhalten.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Abbrechen')),
+        TextButton(onPressed: () => Navigator.pop(c, true), child: const Text('Leeren')),
+      ],
+    ),
+  );
+  if (ok == true) Store.instance.clearRecent();
 }
 
 class _QuickGrid extends StatelessWidget {

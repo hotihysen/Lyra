@@ -5,16 +5,37 @@ import android.content.Intent
 import android.content.pm.PackageInstaller
 import android.net.Uri
 import android.os.Build
+import android.os.Bundle
 import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
+import java.lang.ref.WeakReference
 import java.util.concurrent.Executors
 
 class MainActivity : AudioServiceActivity() {
     private val worker = Executors.newFixedThreadPool(3)
+
+    companion object {
+        @Volatile var current: WeakReference<MainActivity>? = null
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        current = WeakReference(this)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        current = WeakReference(this)
+    }
+
+    override fun onDestroy() {
+        if (current?.get() === this) current = null
+        super.onDestroy()
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
@@ -56,22 +77,29 @@ class MainActivity : AudioServiceActivity() {
                         }
                         "install" -> {
                             val file = File(call.argument<String>("path")!!)
+                            UpdateStatus.reset()
                             Thread {
                                 try {
                                     installWithSession(file)
-                                    runOnUiThread { result.success(true) }
+                                    runOnUiThread { result.success("session") }
                                 } catch (e: Exception) {
-                                    // Ersatzweg: klassischer Installationsdialog
                                     runOnUiThread {
                                         try {
                                             openApk(file)
-                                            result.success(true)
+                                            result.success("classic")
                                         } catch (e2: Exception) {
                                             result.error("update", e2.message ?: e.message, null)
                                         }
                                     }
                                 }
                             }.start()
+                        }
+                        "installStatus" -> result.success(
+                            mapOf("status" to UpdateStatus.status, "message" to UpdateStatus.message)
+                        )
+                        "openApk" -> {
+                            openApk(File(call.argument<String>("path")!!))
+                            result.success(true)
                         }
                         else -> result.notImplemented()
                     }

@@ -143,6 +143,16 @@ class Store extends ChangeNotifier {
   }
 
   // Zuletzt gehört
+  void removeRecent(Track t) {
+    recent.removeWhere((e) => e.id == t.id);
+    _put('recent', recent);
+  }
+
+  void clearRecent() {
+    recent.clear();
+    _put('recent', recent);
+  }
+
   void addRecent(Track t) {
     recent.removeWhere((e) => e.id == t.id);
     recent.insert(0, t);

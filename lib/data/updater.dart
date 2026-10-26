@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
@@ -56,6 +57,22 @@ class Updater {
     } catch (_) {}
   }
 
+  /// Beobachtet die Installationssitzung. Zeigt Android innert weniger Sekunden nichts an
+  /// (z.B. weil der Bestätigungsdialog blockiert wurde), öffnet Lyra den klassischen Installer.
+  static Future<void> _watchSession(File apk) async {
+    final until = DateTime.now().add(const Duration(seconds: 10));
+    while (DateTime.now().isBefore(until)) {
+      await Future.delayed(const Duration(milliseconds: 500));
+      // Der Installer liegt jetzt über Lyra: es läuft
+      if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) return;
+      final st = await _ch.invokeMapMethod<String, dynamic>('installStatus');
+      final status = (st?['status'] as num?)?.toInt() ?? -99;
+      if (status == 0) return; // Erfolg: Android ersetzt die App gleich
+      if (status > 0) break; // Fehler der Sitzung: klassischer Weg
+    }
+    await _ch.invokeMethod('openApk', {'path': apk.path});
+  }
+
   /// Lädt die APK und öffnet den Android-Installer (bestätigen musst du dort selbst).
   static Future<void> install(UpdateInfo info) async {
     if (!await _ch.invokeMethod<bool>('canInstall').then((v) => v ?? false)) {
@@ -83,7 +100,9 @@ class Updater {
       } finally {
         await sink.close();
       }
-      await _ch.invokeMethod('install', {'path': file.path});
+      if (got < 1000000) throw Exception('Download unvollständig (${got ~/ 1024} KB)');
+      final mode = await _ch.invokeMethod<String>('install', {'path': file.path});
+      if (mode == 'session') await _watchSession(file);
     } finally {
       client.close();
       progress.value = null;
