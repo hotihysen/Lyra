@@ -39,7 +39,8 @@ jobs:
         run: |
           set -o pipefail
           flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} --dart-define=BUILD_NUMBER=${{ github.run_number }} 2>&1 | tee build.log || {
-            grep -nE "Error|error:|^e: |e: file|lib/.*:[0-9]+:[0-9]+|What went wrong|Exception|Could not (find|resolve)" build.log | head -60 > errs.txt || true
+            grep -nE "Error|error:|^e: |e: file|lib/.*:[0-9]+:[0-9]+|What went wrong|Exception|Could not (find|resolve)" build.log | grep -v "What went wrong" | head -40 > errs.txt || true
+            grep -A25 "What went wrong" build.log | head -60 >> errs.txt || true
             [ -s errs.txt ] || tail -60 build.log > errs.txt
             split -l 6 errs.txt chunk_
             for f in chunk_*; do
