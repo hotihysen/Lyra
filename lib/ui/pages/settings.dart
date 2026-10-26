@@ -46,6 +46,12 @@ class SettingsPage extends StatelessWidget {
               onChanged: s.setAutoUpdate,
             ),
             ListTile(
+              title: const Text('Update-Test'),
+              subtitle: const Text('Update-Logik ausprobieren, auch ohne neue Version', style: TextStyle(color: kMuted)),
+              trailing: const Icon(Icons.science_outlined),
+              onTap: () => openPage(const UpdateTestPage()),
+            ),
+            ListTile(
               title: const Text('Wiedergabe-Diagnose'),
               subtitle: const Text('Prüft, ob YouTube-Audio auf diesem Gerät abrufbar ist', style: TextStyle(color: kMuted)),
               trailing: const Icon(Icons.troubleshoot_rounded),

@@ -28,7 +28,7 @@ Future<void> showUpdateDialogOnce(BuildContext context, UpdateInfo info) async {
 }
 
 /// Lädt die APK mit Fortschrittsanzeige und öffnet den Installer.
-Future<void> runUpdate(BuildContext context, UpdateInfo info) async {
+Future<void> runUpdate(BuildContext context, UpdateInfo info, {InstallMode mode = InstallMode.auto}) async {
   showDialog(
     context: context,
     barrierDismissible: false,
@@ -49,9 +49,10 @@ Future<void> runUpdate(BuildContext context, UpdateInfo info) async {
     ),
   );
   try {
-    await Updater.install(info);
+    await Updater.install(info, mode: mode);
     if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
   } catch (e) {
+    Updater.log.value = [...Updater.log.value, 'FEHLER: ${e is PlatformException ? (e.message ?? e.code) : e.toString().replaceFirst('Exception: ', '')}'];
     if (!context.mounted) return;
     Navigator.of(context, rootNavigator: true).pop();
     final msg = e is PlatformException ? (e.message ?? e.code) : e.toString().replaceFirst('Exception: ', '');
@@ -161,4 +162,140 @@ class _DiagnosePageState extends State<DiagnosePage> {
       ),
     );
   }
+}
+
+
+/// Testseite: Update-Logik jederzeit ausprobieren, Schritt für Schritt protokolliert.
+class UpdateTestPage extends StatefulWidget {
+  const UpdateTestPage({super.key});
+  @override
+  State<UpdateTestPage> createState() => _UpdateTestPageState();
+}
+
+class _UpdateTestPageState extends State<UpdateTestPage> {
+  UpdateInfo? _latest;
+  String? _error;
+  bool _loading = true;
+  InstallMode _mode = InstallMode.auto;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final l = await Updater.fetchLatest();
+      if (mounted) setState(() => _latest = l);
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
+    }
+    if (mounted) setState(() => _loading = false);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    final l = _latest;
+    final newer = l != null && l.build > Updater.build;
+    return Scaffold(
+      backgroundColor: kBg,
+      appBar: AppBar(
+        title: const Text('Update-Test', style: TextStyle(fontWeight: FontWeight.w800)),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.copy_rounded),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: Updater.log.value.join('\n')));
+              toast(context, 'Protokoll kopiert');
+            },
+          ),
+          IconButton(icon: const Icon(Icons.delete_outline_rounded), onPressed: Updater.clearLog),
+        ],
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(16),
+        children: [
+          _row('Installiert', Updater.version),
+          _row('Neuestes Release', _loading ? 'wird geladen …' : (l?.version ?? '–')),
+          if (_error != null) _row('Fehler', _error!),
+          if (l != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 4, bottom: 12),
+              child: Text(
+                newer ? 'Ein neueres Release ist verfügbar: echtes Update.' : 'Du bist aktuell: die gleiche Version wird neu installiert (zum Testen).',
+                style: TextStyle(color: newer ? accent : kMuted),
+              ),
+            ),
+          const SizedBox(height: 8),
+          const Text('Installationsweg', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+          for (final m in InstallMode.values)
+            RadioListTile<InstallMode>(
+              value: m,
+              groupValue: _mode,
+              activeColor: accent,
+              contentPadding: EdgeInsets.zero,
+              title: Text(m.label),
+              subtitle: Text(
+                switch (m) {
+                  InstallMode.auto => 'Sitzung, nach 10 s ohne Dialog klassischer Installer',
+                  InstallMode.session => 'Nur Installationssitzung, ab dem 2. Mal ohne Rückfrage',
+                  InstallMode.classic => 'Android-Dialog «App aktualisieren» direkt',
+                },
+                style: const TextStyle(color: kMuted, fontSize: 12.5),
+              ),
+              onChanged: (v) => setState(() => _mode = v!),
+            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  onPressed: l == null ? null : () => runUpdate(context, l, mode: _mode),
+                  icon: const Icon(Icons.system_update_rounded),
+                  label: Text(newer ? 'Update installieren' : 'Erneut installieren'),
+                ),
+              ),
+              const SizedBox(width: 8),
+              IconButton(onPressed: _loading ? null : _load, icon: const Icon(Icons.refresh_rounded)),
+            ],
+          ),
+          const SizedBox(height: 20),
+          const Text('Protokoll', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+          const SizedBox(height: 8),
+          ValueListenableBuilder<List<String>>(
+            valueListenable: Updater.log,
+            builder: (c, lines, _) => lines.isEmpty
+                ? const Text('Noch keine Einträge.', style: TextStyle(color: kMuted))
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      for (final line in lines)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 4),
+                          child: SelectableText(line, style: const TextStyle(fontFamily: 'monospace', fontSize: 12.5)),
+                        ),
+                    ],
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _row(String k, String v) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(width: 140, child: Text(k, style: const TextStyle(color: kMuted))),
+            Expanded(child: Text(v, style: const TextStyle(fontWeight: FontWeight.w600))),
+          ],
+        ),
+      );
 }
