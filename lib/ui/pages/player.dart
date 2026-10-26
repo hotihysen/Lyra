@@ -317,12 +317,12 @@ class _Controls extends StatelessWidget {
             onPressed: () => audio.seekRelative(const Duration(seconds: 30)),
           )
         else
-          ValueListenableBuilder<RepeatMode>(
+          ValueListenableBuilder<RepeatSetting>(
             valueListenable: audio.repeat,
             builder: (context, m, _) => IconButton(
               iconSize: 26,
-              icon: Icon(m == RepeatMode.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
-                  color: m == RepeatMode.off ? Colors.white : accent),
+              icon: Icon(m == RepeatSetting.one ? Icons.repeat_one_rounded : Icons.repeat_rounded,
+                  color: m == RepeatSetting.off ? Colors.white : accent),
               onPressed: audio.cycleRepeat,
             ),
           ),

@@ -10,7 +10,7 @@ import '../api/youtube.dart';
 import '../data/models.dart';
 import '../data/store.dart';
 
-enum RepeatMode { off, all, one }
+enum RepeatSetting { off, all, one }
 
 /// Wiedergabe mit zwei Playern, damit Titel weich ineinander überblenden (Crossfade).
 class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
@@ -29,7 +29,7 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
 
   final current = ValueNotifier<Track?>(null);
   final queueVersion = ValueNotifier<int>(0);
-  final repeat = ValueNotifier<RepeatMode>(RepeatMode.off);
+  final repeat = ValueNotifier<RepeatSetting>(RepeatSetting.off);
   final shuffle = ValueNotifier<bool>(false);
   final speed = ValueNotifier<double>(1.0);
   final loading = ValueNotifier<bool>(false);
@@ -219,7 +219,7 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
   }
 
   void cycleRepeat() {
-    repeat.value = RepeatMode.values[(repeat.value.index + 1) % RepeatMode.values.length];
+    repeat.value = RepeatSetting.values[(repeat.value.index + 1) % RepeatSetting.values.length];
   }
 
   // ---------- Laden & Abspielen ----------
@@ -287,7 +287,7 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
       _p.seek(Duration.zero);
       return;
     }
-    if (repeat.value == RepeatMode.one) {
+    if (repeat.value == RepeatSetting.one) {
       _p.seek(Duration.zero);
       _p.play();
       return;
@@ -321,7 +321,7 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
   void _checkCrossfade(Duration pos) {
     final cf = Store.instance.crossfade;
     if (cf <= 0 || _fading || loading.value || sleepAfterTrack.value) return;
-    if (repeat.value == RepeatMode.one) return;
+    if (repeat.value == RepeatSetting.one) return;
     final t = current.value;
     if (t == null || t.isBook) return;
     final dur = _p.duration;
@@ -329,7 +329,7 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
     if (dur - pos > Duration(seconds: cf)) return;
     var next = index + 1;
     if (next >= tracks.length) {
-      if (repeat.value != RepeatMode.all) return;
+      if (repeat.value != RepeatSetting.all) return;
       next = 0;
     }
     if (tracks[next].isBook) return;
@@ -437,7 +437,7 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> skipToNext() async {
     if (index + 1 < tracks.length) {
       await _load(index + 1);
-    } else if (repeat.value == RepeatMode.all && tracks.isNotEmpty) {
+    } else if (repeat.value == RepeatSetting.all && tracks.isNotEmpty) {
       await _load(0);
     } else {
       await _autoplay();
