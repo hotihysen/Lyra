@@ -22,6 +22,13 @@ Future<void> main() async {
       androidNotificationOngoing: true,
       androidStopForegroundOnPause: true,
       androidNotificationIcon: 'drawable/ic_stat_lyra',
+      // Android Auto: Listen-Darstellung und Suche im Auto
+      androidBrowsableRootExtras: {
+        'android.media.browse.CONTENT_STYLE_SUPPORTED': true,
+        'android.media.browse.CONTENT_STYLE_BROWSABLE_HINT': 1,
+        'android.media.browse.CONTENT_STYLE_PLAYABLE_HINT': 1,
+        'android.media.browse.SEARCH_SUPPORTED': true,
+      },
     ),
   );
   SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
