@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 
 import '../data/models.dart';
 import '../data/store.dart';
+import '../data/updater.dart';
 import '../main.dart';
 import 'pages/books.dart';
 import 'pages/home.dart';
@@ -11,6 +12,7 @@ import 'pages/library.dart';
 import 'pages/player.dart';
 import 'pages/search.dart';
 import 'theme.dart';
+import 'update_ui.dart';
 import 'widgets.dart';
 
 final shellKey = GlobalKey<ShellState>();
@@ -34,6 +36,13 @@ class ShellState extends State<Shell> {
   void initState() {
     super.initState();
     audio.error.addListener(_showError);
+    if (Store.instance.autoUpdate) {
+      Future.delayed(const Duration(seconds: 3), () async {
+        await Updater.checkSilently();
+        final info = Updater.available.value;
+        if (info != null && mounted) showUpdateDialogOnce(context, info);
+      });
+    }
   }
 
   @override
@@ -47,7 +56,7 @@ class ShellState extends State<Shell> {
     if (msg == null || !mounted) return;
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 3)));
+      ..showSnackBar(SnackBar(content: Text(msg), duration: const Duration(seconds: 5)));
   }
 
   void push(Widget page) {

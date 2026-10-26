@@ -25,11 +25,15 @@ class Store extends ChangeNotifier {
   Map<String, Book> books = {};
   Map<String, Map> progress = {};
   int crossfade = 4;
+  String? ytClient;
+  bool autoUpdate = true;
 
   Future<void> init() async {
     _box = await Hive.openBox('lyra');
     accentIndex.value = (_box.get('accent') as int?) ?? 0;
     crossfade = (_box.get('crossfade') as int?) ?? 4;
+    ytClient = _box.get('ytClient') as String?;
+    autoUpdate = (_box.get('autoUpdate') as bool?) ?? true;
     liked = _list('liked', Track.fromJson);
     likedAlbums = _list('likedAlbums', Album.fromJson);
     followed = _list('followed', Artist.fromJson);
@@ -153,6 +157,17 @@ class Store extends ChangeNotifier {
   void clearYt() {
     ytIds.clear();
     _box.put('yt', ytIds);
+    notifyListeners();
+  }
+
+  void setYtClient(String c) {
+    ytClient = c;
+    _box.put('ytClient', c);
+  }
+
+  void setAutoUpdate(bool v) {
+    autoUpdate = v;
+    _box.put('autoUpdate', v);
     notifyListeners();
   }
 

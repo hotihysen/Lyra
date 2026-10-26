@@ -26,7 +26,13 @@ jobs:
           cache: true
 
       - name: Android-Grundgerüst ergänzen (eigene Dateien bleiben unverändert)
-        run: flutter create --platforms=android --org ch.hysen --project-name lyra .
+        run: |
+          flutter create --platforms=android --org ch.hysen --project-name lyra .
+          if [ -f android/app/build.gradle.kts ]; then
+            printf '\ndependencies {\n    implementation("androidx.core:core-ktx:1.13.1")\n}\n' >> android/app/build.gradle.kts
+          else
+            printf "\ndependencies {\n    implementation 'androidx.core:core-ktx:1.13.1'\n}\n" >> android/app/build.gradle
+          fi
 
       - name: Fester Signaturschlüssel, damit Updates über die alte Version installierbar sind
         run: mkdir -p ~/.android && cp ci/debug.keystore ~/.android/debug.keystore
@@ -36,7 +42,7 @@ jobs:
       - name: APK bauen
         run: |
           set -o pipefail
-          flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} 2>&1 | tee build.log || {
+          flutter build apk --release --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} --dart-define=BUILD_NUMBER=${{ github.run_number }} 2>&1 | tee build.log || {
             grep -nE "Error|error:|lib/.*:[0-9]+:[0-9]+|What went wrong|Exception" build.log | head -60 > errs.txt || true
             [ -s errs.txt ] || tail -60 build.log > errs.txt
             split -l 6 errs.txt chunk_

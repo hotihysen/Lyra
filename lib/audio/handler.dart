@@ -228,7 +228,7 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
     final f = Store.instance.fileFor(t);
     if (Store.instance.isDownloaded(t) && f.existsSync()) return AudioSource.file(f.path);
     if (t.url != null) return AudioSource.uri(Uri.parse(t.url!));
-    return AudioSource.uri(await YT.streamUrl(t));
+    return YT.audioSource(t);
   }
 
   Future<void> _load(int i, {bool autoplay = true}) async {
@@ -267,7 +267,11 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
 
   void _onError(Object e) {
     final t = current.value;
-    error.value = t == null ? 'Wiedergabe fehlgeschlagen' : '«${t.title}» konnte nicht geladen werden';
+    var reason = e.toString().replaceFirst('Exception: ', '').split('\n').first;
+    if (reason.length > 110) reason = '${reason.substring(0, 110)}…';
+    error.value = t == null
+        ? 'Wiedergabe fehlgeschlagen: $reason'
+        : '«${t.title}» konnte nicht geladen werden ($reason)';
     if (t != null && !t.isBook) {
       // Falsche oder veraltete Zuordnung vergessen, damit der nächste Versuch neu sucht.
       Store.instance.ytIds.remove(t.id);

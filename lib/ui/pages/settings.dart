@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import '../../data/store.dart';
+import '../../data/updater.dart';
+import '../update_ui.dart';
 import '../shell.dart';
 import '../theme.dart';
 import '../widgets.dart';
@@ -25,6 +27,29 @@ class SettingsPage extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.only(bottom: 32),
           children: [
+            _h('App'),
+            ListTile(
+              title: Text('Lyra ${Updater.version}'),
+              subtitle: ValueListenableBuilder<UpdateInfo?>(
+                valueListenable: Updater.available,
+                builder: (c, u, _) => Text(u == null ? 'Tippe, um nach Updates zu suchen' : 'Update auf ${u.version} verfügbar',
+                    style: TextStyle(color: u == null ? kMuted : accent)),
+              ),
+              trailing: const Icon(Icons.system_update_rounded),
+              onTap: () => checkForUpdate(context),
+            ),
+            SwitchListTile(
+              title: const Text('Beim Start nach Updates suchen'),
+              value: s.autoUpdate,
+              activeColor: accent,
+              onChanged: s.setAutoUpdate,
+            ),
+            ListTile(
+              title: const Text('Wiedergabe-Diagnose'),
+              subtitle: const Text('Prüft, ob YouTube-Audio auf diesem Gerät abrufbar ist', style: TextStyle(color: kMuted)),
+              trailing: const Icon(Icons.troubleshoot_rounded),
+              onTap: () => openPage(const DiagnosePage()),
+            ),
             _h('Design'),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12),
