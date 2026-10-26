@@ -259,8 +259,10 @@ class Updater {
           'Signatur ${sameSig == true ? 'gleich' : sameSig == false ? 'VERSCHIEDEN' : 'nicht prüfbar'}');
       if (pkg != packageName) throw Exception('Falsches Paket in der APK ($pkg statt $packageName)');
       if (sameSig == false) {
-        throw Exception('Signaturkonflikt: Die neue APK ist mit einem anderen Schlüssel signiert als die installierte Lyra. '
-            'Android lässt dieses Update nicht zu. Bitte nicht deinstallieren, sondern das Protokoll schicken.');
+        throw Exception('Signaturkonflikt: Die neue APK ist mit einem anderen Schlüssel signiert als die installierte Lyra, '
+            'deshalb lässt Android dieses Update nicht zu. Bekannte Ursache: Versionen bis 1.0.14 wurden bei jedem Build '
+            'mit einem neuen Schlüssel signiert. Ab der korrigierten Version ist der Schlüssel fest; der Wechsel dorthin '
+            'braucht einmalig eine Neuinstallation. Bitte das Protokoll schicken.');
       }
       if (vc < installedVc) throw Exception('Die APK ist älter (Code $vc) als die installierte Version (Code $installedVc)');
       if (vc == installedVc && !p.allowSameVersion) throw Exception('Die APK hat dieselbe Version wie die installierte');

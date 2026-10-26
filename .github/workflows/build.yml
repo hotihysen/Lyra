@@ -32,9 +32,6 @@ jobs:
           flutter create --platforms=android --org ch.hysen --project-name lyra .
           python3 ci/patch_android.py
 
-      - name: Fester Signaturschlüssel, damit Updates über die alte Version installierbar sind
-        run: mkdir -p ~/.android && cp ci/debug.keystore ~/.android/debug.keystore
-
       - run: flutter pub get
 
       - name: Tests der Update-Logik
