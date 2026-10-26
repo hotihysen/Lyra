@@ -16,6 +16,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-java@v4
         with:
@@ -74,6 +76,12 @@ jobs:
           path: Lyra-1.0.${{ github.run_number }}.apk
           retention-days: 14
 
+      - name: Release-Beschreibung erstellen
+        run: |
+          bash ci/release_notes.sh 1.0.${{ github.run_number }} release_body.md
+          msg=$(head -c 3000 release_body.md | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}{print}')
+          echo "::notice title=Release-Beschreibung::$msg"
+
       - name: Release veröffentlichen (nur main)
         if: github.ref == 'refs/heads/main'
         uses: softprops/action-gh-release@v2
@@ -81,4 +89,5 @@ jobs:
           tag_name: v1.0.${{ github.run_number }}
           name: Lyra 1.0.${{ github.run_number }}
           files: Lyra-1.0.${{ github.run_number }}.apk
+          body_path: release_body.md
           make_latest: true
