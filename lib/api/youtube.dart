@@ -31,8 +31,8 @@ class YtResolved {
   final AudioOnlyStreamInfo info;
   final String client;
   const YtResolved(this.videoId, this.info, this.client);
-  String get mime => info.container == StreamContainer.webm ? 'audio/webm' : 'audio/mp4';
-  String get ext => info.container == StreamContainer.webm ? 'webm' : 'm4a';
+  String get mime => info.container.name.toLowerCase() == 'webm' ? 'audio/webm' : 'audio/mp4';
+  String get ext => info.container.name.toLowerCase() == 'webm' ? 'webm' : 'm4a';
 }
 
 /// Datei, die im Hintergrund geladen wird, während der Player schon daraus liest.
