@@ -1,11 +1,11 @@
-name: Lyra APK bauen
+name: Lyra bauen (Android und iPhone)
 
 # main: Tests, Build, APK-Prüfung und Release.
 # Andere Branches: Tests, Build und APK-Prüfung, nur als Artefakt, KEIN Release.
 on:
   push:
     branches: ['**']
-    paths-ignore: ['tool/**', '.github/workflows/diag.yml']
+    paths-ignore: ['tool/**', 'server/**', '.github/workflows/diag.yml', '.github/workflows/server.yml']
   workflow_dispatch:
 
 permissions:
@@ -111,3 +111,57 @@ jobs:
           files: Lyra-1.0.${{ github.run_number }}.apk
           body_path: release_body.md
           make_latest: true
+
+  # iPhone: unsignierte IPA; SideStore signiert sie beim Installieren mit der Apple-ID des Nutzers.
+  ios:
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: iOS-Grundgerüst ergänzen
+        run: |
+          flutter create --platforms=ios --org ch.hysen --project-name lyra .
+          python3 ci/patch_ios.py
+
+      - run: flutter pub get
+
+      - name: IPA bauen (ohne Signatur)
+        run: |
+          set -o pipefail
+          flutter build ios --release --no-codesign --build-name=1.0.${{ github.run_number }} --build-number=${{ github.run_number }} --dart-define=BUILD_NUMBER=${{ github.run_number }} 2>&1 | tee build.log || {
+            msg=$(grep -E "error|Error|lib/.*:[0-9]+:[0-9]+" build.log | head -40 | sed 's/%/%25/g' | cut -c1-300 | awk 'BEGIN{ORS="%0A"}{print}')
+            echo "::error title=iOS-Build fehlgeschlagen::$msg"
+            exit 1
+          }
+          mkdir -p Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qr Lyra-1.0.${{ github.run_number }}.ipa Payload
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/Runner.app/Info.plist
+          /usr/libexec/PlistBuddy -c 'Print :UIBackgroundModes' Payload/Runner.app/Info.plist
+          echo "::notice title=IPA::Lyra-1.0.${{ github.run_number }}.ipa, $(du -h Lyra-1.0.${{ github.run_number }}.ipa | cut -f1)"
+          python3 ci/sidestore_source.py 1.0.${{ github.run_number }} ${{ github.run_number }} Lyra-1.0.${{ github.run_number }}.ipa ${{ github.repository }}
+
+      - name: Test-IPA als Artefakt (nur Branches)
+        if: github.ref != 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lyra-1.0.${{ github.run_number }}-ios-test
+          path: |
+            Lyra-1.0.${{ github.run_number }}.ipa
+            source.json
+          retention-days: 14
+
+      - name: IPA und SideStore-Quelle zum Release (nur main)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v1.0.${{ github.run_number }}
+          files: |
+            Lyra-1.0.${{ github.run_number }}.ipa
+            source.json

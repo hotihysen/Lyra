@@ -27,6 +27,7 @@ class Store extends ChangeNotifier {
   int crossfade = 4;
   String? ytClient;
   String? invHost;
+  String? serverLink;
   bool autoUpdate = true;
 
   Future<void> init() async {
@@ -35,6 +36,7 @@ class Store extends ChangeNotifier {
     crossfade = (_box.get('crossfade') as int?) ?? 4;
     ytClient = _box.get('ytClient') as String?;
     invHost = _box.get('invHost') as String?;
+    serverLink = _box.get('server') as String?;
     autoUpdate = (_box.get('autoUpdate') as bool?) ?? true;
     liked = _list('liked', Track.fromJson);
     likedAlbums = _list('likedAlbums', Album.fromJson);
@@ -201,6 +203,16 @@ class Store extends ChangeNotifier {
   void setInvHost(String h) {
     invHost = h;
     _box.put('invHost', h);
+  }
+
+  void setServerLink(String? v) {
+    serverLink = (v == null || v.trim().isEmpty) ? null : v.trim();
+    if (serverLink == null) {
+      _box.delete('server');
+    } else {
+      _box.put('server', serverLink);
+    }
+    notifyListeners();
   }
 
   void setAutoUpdate(bool v) {

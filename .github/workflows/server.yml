@@ -1,0 +1,69 @@
+name: Lyra-Server
+
+on:
+  push:
+    paths:
+      - 'server/**'
+      - '.github/workflows/server.yml'
+  schedule:
+    # Wöchentlich neu bauen, damit yt-dlp im Image aktuell bleibt
+    - cron: '17 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  server:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Tests (ohne Internet, yt-dlp wird nachgebildet)
+        working-directory: server
+        run: |
+          pip install -q -r requirements.txt httpx pytest
+          python -m pytest -q test_app.py
+
+      - name: Image bauen
+        run: docker build -t lyra-server:test server
+
+      - name: Probelauf mit echtem YouTube (nur Hinweis, Rechenzentrums-IPs werden oft gesperrt)
+        continue-on-error: true
+        run: |
+          docker run -d --name ls -e LYRA_KEY=test -e YTDLP_UPDATE=0 -p 8080:8080 lyra-server:test
+          for i in $(seq 1 30); do curl -sf localhost:8080/ >/dev/null && break; sleep 1; done
+          curl -s -H 'X-Lyra-Key: test' localhost:8080/health; echo
+          code=$(curl -s -o song.m4a -w '%{http_code}' -H 'X-Lyra-Key: test' localhost:8080/audio/lYBUbBu4W08)
+          size=$(stat -c %s song.m4a)
+          echo "::notice title=Probelauf YouTube::HTTP $code, $size Bytes, $(file -b song.m4a | cut -c1-80)"
+          if [ "$code" != 200 ]; then
+            msg=$( (head -c 500 song.m4a; echo; curl -s -H 'X-Lyra-Key: test' localhost:8080/health) | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}{print}')
+            echo "::notice title=Probelauf Antwort::$msg"
+          fi
+          docker rm -f ls
+
+      - name: Bei GitHub anmelden
+        if: github.ref == 'refs/heads/main'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image veröffentlichen (nur main)
+        if: github.ref == 'refs/heads/main'
+        run: |
+          img=ghcr.io/$(echo '${{ github.repository_owner }}' | tr 'A-Z' 'a-z')/lyra-server
+          docker build \
+            --label org.opencontainers.image.source=https://github.com/${{ github.repository }} \
+            --label org.opencontainers.image.description="Lyra-Server: Audio für die Lyra-App" \
+            -t $img:latest -t $img:$(date +%Y%m%d) server
+          docker push $img:latest
+          docker push $img:$(date +%Y%m%d)
+          echo "::notice title=Image::$img:latest"

@@ -1,0 +1,4 @@
+fastapi==0.115.6
+uvicorn==0.32.1
+yt-dlp[default]
+deno>=2.5
