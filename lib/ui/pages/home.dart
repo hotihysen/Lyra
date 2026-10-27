@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
-import '../../api/deezer.dart';
+import '../../api/youtube.dart';
+import '../../api/ytmusic.dart';
 import '../../data/models.dart';
 import '../../data/store.dart';
 import '../../main.dart';
@@ -13,41 +14,47 @@ import 'collection.dart';
 import 'settings.dart';
 
 class HomeData {
-  final Chart? chart;
+  final List<YtSection>? sections; // Startseite von YouTube Music
   final List<Track> forYou;
   final String forYouLabel;
   final List<Artist> similar;
-  const HomeData(this.chart, this.forYou, this.forYouLabel, this.similar);
+  final String similarLabel;
+  const HomeData(this.sections, this.forYou, this.forYouLabel, this.similar, this.similarLabel);
 }
 
 Future<HomeData> loadHome() async {
   final s = Store.instance;
-  Chart? chart;
-  try {
-    chart = await Deezer.chart();
-  } catch (_) {}
-  final seeds = <String, String>{};
-  for (final a in s.followed) {
-    seeds[a.id] = a.name;
-  }
-  for (final t in [...s.recent, ...s.liked]) {
-    if (!t.isBook && t.artistId.isNotEmpty) seeds.putIfAbsent(t.artistId, () => t.artist);
-  }
+  final homeF = YTMusic.home().then<List<YtSection>?>((v) => v).catchError((_) => null);
+
+  // «Dein Mix»: Mix von YouTube Music zu einem kürzlich gehörten oder gelikten Titel
+  final seeds = [...s.recent.take(5), ...s.liked.take(5)].where((t) => !t.isBook).toList()..shuffle();
   var forYou = <Track>[];
-  var similar = <Artist>[];
   var label = '';
   if (seeds.isNotEmpty) {
-    final pick = seeds.entries.take(6).toList()..shuffle();
-    final e = pick.first;
-    label = e.value;
+    final seed = seeds.first;
     try {
-      forYou = await Deezer.artistRadio(e.key);
-    } catch (_) {}
-    try {
-      similar = (await Deezer.related(e.key)).where((a) => !s.isFollowing(a.id)).toList();
+      final vid = (await YT.candidates(seed)).first;
+      forYou = (await YTMusic.radio(vid)).tracks.where((t) => t.id != vid).toList();
+      label = seed.title;
     } catch (_) {}
   }
-  return HomeData(chart, forYou, label, similar);
+
+  // «Ähnlich wie …»: verwandte Künstler eines gefolgten oder gehörten Künstlers
+  var similar = <Artist>[];
+  var similarLabel = '';
+  final artistSeeds = <String, String>{
+    for (final a in s.followed.where((a) => a.id.startsWith('UC'))) a.id: a.name,
+    for (final t in s.recent.where((t) => t.artistId.startsWith('UC'))) t.artistId: t.artist.split(',').first,
+  }.entries.toList()
+    ..shuffle();
+  if (artistSeeds.isNotEmpty) {
+    try {
+      final a = await YTMusic.artist(artistSeeds.first.key);
+      similar = a.related.where((r) => !s.isFollowing(r.id)).toList();
+      similarLabel = a.artist.name;
+    } catch (_) {}
+  }
+  return HomeData(await homeF, forYou, label, similar, similarLabel);
 }
 
 String greeting() {
@@ -82,7 +89,7 @@ class _HomePageState extends State<HomePage> {
           },
           child: storeBuilder((context, s) {
             final d = snap.data;
-            final chart = d?.chart;
+            final sections = d?.sections;
             return ListView(
               padding: EdgeInsets.only(top: top + 10, bottom: 24),
               children: [
@@ -126,7 +133,7 @@ class _HomePageState extends State<HomePage> {
                     padding: EdgeInsets.all(40),
                     child: Center(child: CircularProgressIndicator()),
                   ),
-                if (snap.connectionState == ConnectionState.done && chart == null)
+                if (snap.connectionState == ConnectionState.done && sections == null)
                   Padding(
                     padding: const EdgeInsets.all(32),
                     child: Column(children: [
@@ -155,7 +162,7 @@ class _HomePageState extends State<HomePage> {
                 ),
                 if (d != null && d.forYou.isNotEmpty)
                   Carousel(
-                    title: 'Dein Mix: ${d.forYouLabel}',
+                    title: 'Mix: ${d.forYouLabel}',
                     items: [
                       for (var i = 0; i < d.forYou.length; i++)
                         CardItem(
@@ -166,61 +173,11 @@ class _HomePageState extends State<HomePage> {
                         ),
                     ],
                   ),
-                if (chart != null) ...[
-                  Carousel(
-                    title: 'Angesagt in den Charts',
-                    items: [
-                      for (var i = 0; i < chart.tracks.length; i++)
-                        CardItem(
-                          image: chart.tracks[i].cover,
-                          title: '${i + 1}. ${chart.tracks[i].title}',
-                          subtitle: chart.tracks[i].artist,
-                          onTap: () => audio.playTracks(chart.tracks, start: i),
-                        ),
-                    ],
-                  ),
-                  Carousel(
-                    title: 'Beliebte Alben',
-                    items: [
-                      for (final a in chart.albums)
-                        CardItem(
-                          image: a.cover,
-                          title: a.title,
-                          subtitle: a.artist,
-                          onTap: () => openPage(AlbumPage(albumId: a.id)),
-                        ),
-                    ],
-                  ),
-                  Carousel(
-                    title: 'Ausgewählte Playlists',
-                    items: [
-                      for (final p in chart.playlists)
-                        CardItem(
-                          image: p.cover,
-                          title: p.title,
-                          subtitle: p.subtitle,
-                          onTap: () => openPage(PlaylistPage(playlistId: p.id)),
-                        ),
-                    ],
-                  ),
-                  Carousel(
-                    title: 'Beliebte Künstler',
-                    size: 130,
-                    items: [
-                      for (final a in chart.artists)
-                        CardItem(
-                          image: a.picture,
-                          title: a.name,
-                          circle: true,
-                          fallback: Icons.person_rounded,
-                          onTap: () => openPage(ArtistPage(artistId: a.id)),
-                        ),
-                    ],
-                  ),
-                ],
+                if (sections != null)
+                  for (final sec in sections) YtSectionCarousel(sec),
                 if (d != null && d.similar.isNotEmpty)
                   Carousel(
-                    title: 'Ähnlich wie ${d.forYouLabel}',
+                    title: 'Ähnlich wie ${d.similarLabel}',
                     size: 130,
                     items: [
                       for (final a in d.similar)
@@ -319,7 +276,7 @@ class _QuickGrid extends StatelessWidget {
         _QuickTile(
           art: Cover(a.cover, size: 56, radius: 0),
           title: a.title,
-          onTap: () => openPage(AlbumPage(albumId: a.id)),
+          onTap: () => openPage(AlbumPage(albumId: a.id, title: a.title, artist: a.artist)),
         ),
       for (final b in s.continueBooks().take(1))
         _QuickTile(
@@ -331,7 +288,7 @@ class _QuickGrid extends StatelessWidget {
         _QuickTile(
           art: Cover(a.picture, size: 56, radius: 0, fallback: Icons.person_rounded),
           title: a.name,
-          onTap: () => openPage(ArtistPage(artistId: a.id)),
+          onTap: () => openPage(ArtistPage(artistId: a.id, name: a.name)),
         ),
     ];
     final list = tiles.take(6).toList();

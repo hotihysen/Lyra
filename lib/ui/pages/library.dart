@@ -59,7 +59,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   art: Cover(a.cover, size: 56),
                   title: a.title,
                   subtitle: '${a.typeLabel} · ${a.artist}',
-                  onTap: () => openPage(AlbumPage(albumId: a.id)),
+                  onTap: () => openPage(AlbumPage(albumId: a.id, title: a.title, artist: a.artist)),
                 ),
             if (show(2))
               for (final a in s.followed)
@@ -67,7 +67,7 @@ class _LibraryPageState extends State<LibraryPage> {
                   art: Cover(a.picture, size: 56, circle: true, fallback: Icons.person_rounded),
                   title: a.name,
                   subtitle: 'Künstler',
-                  onTap: () => openPage(ArtistPage(artistId: a.id)),
+                  onTap: () => openPage(ArtistPage(artistId: a.id, name: a.name)),
                 ),
             if (show(3))
               for (final b in s.books.values)

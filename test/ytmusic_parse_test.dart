@@ -45,6 +45,7 @@ void main() {
       note('Alben: ${al.take(3).map((a) => '${a.title} ${a.id} ${a.typeLabel} ${a.year} ${a.artistNames}').join('; ')}');
       note('Playlists: ${pl.take(3).map((p) => '${p.title} ${p.id}').join('; ')}');
       expect(ar.first.title, 'Kida');
+      expect(ar.first.subtitle, contains('Mio.'));
       expect(ar.first.id, startsWith('UC'));
       expect(al, isNotEmpty);
       expect(al.every((a) => a.id.startsWith('MPRE')), isTrue);
@@ -106,8 +107,9 @@ void main() {
     note('Charts: ${charts.map((s) => '${s.title}(${s.items.length})').join(', ')}');
     note('Genres: ${genres.length}, z.B. ${genres.take(4).map((g) => '${g.name}#${g.color.toRadixString(16)}').join(', ')}');
     note('Genreseite: ${genrePage.map((s) => '${s.title}(${s.items.length})').take(4).join(', ')}');
-    expect(home.length, greaterThan(2));
-    expect(home.expand((s) => s.items).length, greaterThan(20));
+    // ohne Fortsetzung liefert die Startseite zuerst nur wenige Regale; den Rest lädt die App nach
+    expect(home, isNotEmpty);
+    expect(home.expand((s) => s.items).length, greaterThan(10));
     expect(genres.length, greaterThan(10));
     expect(genrePage, isNotEmpty);
   }, skip: skip);

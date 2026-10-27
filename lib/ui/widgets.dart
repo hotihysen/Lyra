@@ -2,7 +2,8 @@ import 'package:audio_service/audio_service.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
-import '../api/deezer.dart';
+import '../api/youtube.dart';
+import '../api/ytmusic.dart';
 import '../data/downloads.dart';
 import '../data/models.dart';
 import '../data/store.dart';
@@ -422,11 +423,11 @@ void showTrackMenu(BuildContext context, Track t, {String? playlistId}) {
                   if (context.mounted) toast(context, ok ? 'Heruntergeladen' : 'Download fehlgeschlagen');
                 }
               }),
-              if (!t.isBook && t.artistId.isNotEmpty)
-                item(Icons.radio_rounded, 'Song-Radio starten', () => startArtistRadio(context, t.artistId, seed: t)),
-              if (!t.isBook && t.artistId.isNotEmpty)
+              if (!t.isBook)
+                item(Icons.radio_rounded, 'Mix zu diesem Song', () => startArtistRadio(context, t.artistId, seed: t)),
+              if (!t.isBook && t.artistId.startsWith('UC'))
                 item(Icons.person_outline_rounded, 'Zum Künstler', () => openPage(ArtistPage(artistId: t.artistId))),
-              if (!t.isBook && t.albumId.isNotEmpty)
+              if (!t.isBook && t.albumId.startsWith('MPRE'))
                 item(Icons.album_outlined, 'Zum Album', () => openPage(AlbumPage(albumId: t.albumId))),
               const SizedBox(height: 8),
             ],
@@ -511,8 +512,12 @@ void showAddToPlaylist(BuildContext context, Track t) {
 Future<void> startArtistRadio(BuildContext context, String artistId, {Track? seed}) async {
   toast(context, 'Radio wird erstellt …');
   try {
-    final list = await Deezer.artistRadio(artistId);
+    // Mit Ausgangstitel: Mix zu diesem Song; sonst der Mix des Künstlers (wie in YouTube Music)
+    final list = seed != null
+        ? (await YTMusic.radio((await YT.candidates(seed)).first)).tracks
+        : await YTMusic.artistRadio(artistId);
     final tracks = [if (seed != null) seed, ...list.where((e) => e.id != seed?.id)];
+    if (tracks.isEmpty) throw Exception('leer');
     await audio.playTracks(tracks);
   } catch (_) {
     if (context.mounted) toast(context, 'Radio konnte nicht geladen werden');
@@ -591,6 +596,51 @@ class Carousel extends StatelessWidget {
             },
           ),
         ),
+      ],
+    );
+  }
+}
+
+/// Ein Regal von YouTube Music als Karussell: Titel spielen, Alben/Playlists/Künstler öffnen.
+class YtSectionCarousel extends StatelessWidget {
+  final YtSection section;
+  const YtSectionCarousel(this.section, {super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final items = section.items.where((i) => i.kind != YtKind.other).toList();
+    if (items.isEmpty) return const SizedBox.shrink();
+    final playable = items.where((i) => i.playable).map((i) => i.toTrack()).toList();
+    final allArtists = items.every((i) => i.kind == YtKind.artist);
+    return Carousel(
+      title: section.title.isEmpty ? 'Für dich' : section.title,
+      size: allArtists ? 130 : 148,
+      items: [
+        for (final it in items)
+          CardItem(
+            image: it.thumb,
+            title: it.title,
+            subtitle: it.playable ? it.artistNames : it.subtitle,
+            circle: it.kind == YtKind.artist,
+            fallback: it.kind == YtKind.artist ? Icons.person_rounded : Icons.music_note_rounded,
+            onTap: () {
+              switch (it.kind) {
+                case YtKind.song:
+                case YtKind.video:
+                  final i = playable.indexWhere((t) => t.id == it.id);
+                  audio.playTracks(playable, start: i < 0 ? 0 : i);
+                case YtKind.album:
+                  openPage(AlbumPage(albumId: it.id));
+                case YtKind.playlist:
+                  openPage(PlaylistPage(playlistId: it.id));
+                case YtKind.artist:
+                  openPage(ArtistPage(artistId: it.id));
+                case YtKind.other:
+                  break;
+              }
+            },
+            onLongPress: it.playable ? () => showTrackMenu(context, it.toTrack()) : null,
+          ),
       ],
     );
   }

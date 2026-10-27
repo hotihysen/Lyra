@@ -164,7 +164,7 @@ class SettingsPage extends StatelessWidget {
             const ListTile(
               title: Text('Lyra'),
               subtitle: Text(
-                'Privates Lernprojekt.\nKatalog: Deezer · Wiedergabe: YouTube · Songtexte: LRCLIB · Hörbücher: LibriVox (gemeinfrei)',
+                'Privates Lernprojekt.\nKatalog und Wiedergabe: YouTube Music · Songtexte: LRCLIB · Hörbücher: LibriVox (gemeinfrei)',
                 style: TextStyle(color: kMuted, height: 1.4),
               ),
             ),

@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
-import '../../api/deezer.dart';
+import '../../api/ytmusic.dart';
 import '../../data/models.dart';
 import '../../main.dart';
 import '../shell.dart';
@@ -29,7 +29,7 @@ class _SearchPageState extends State<SearchPage> {
   String _q = '';
   Future<SearchResult>? _f;
   int _filter = 0;
-  late Future<List<Genre>> _genres = Deezer.genres();
+  late Future<List<Genre>> _genres = YTMusic.genres();
 
   void _onChanged(String v) {
     _deb?.cancel();
@@ -38,7 +38,7 @@ class _SearchPageState extends State<SearchPage> {
       if (q == _q) return;
       setState(() {
         _q = q;
-        _f = q.isEmpty ? null : Deezer.searchAll(q);
+        _f = q.isEmpty ? null : YTMusic.searchAll(q);
       });
     });
   }
@@ -106,7 +106,7 @@ class _SearchPageState extends State<SearchPage> {
         if (s.hasError) {
           return Center(
             child: TextButton(
-              onPressed: () => setState(() => _genres = Deezer.genres()),
+              onPressed: () => setState(() => _genres = YTMusic.genres()),
               child: const Text('Genres neu laden'),
             ),
           );
@@ -326,13 +326,14 @@ class _GenreTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: color,
+      color: genre.color != 0 && genre.color != 0xFF606060 ? Color(genre.color).withValues(alpha: 1) : color,
       borderRadius: BorderRadius.circular(8),
       clipBehavior: Clip.antiAlias,
       child: InkWell(
         onTap: () => openPage(GenrePage(genre: genre)),
         child: Stack(
           children: [
+            if (genre.picture.isNotEmpty)
             Positioned(
               right: -14,
               bottom: -6,
@@ -346,7 +347,14 @@ class _GenreTile extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.all(12),
-              child: Text(genre.name, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+              child: Text(genre.name,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w800,
+                    color: genre.color != 0 && genre.color != 0xFF606060 && Color(genre.color).computeLuminance() > 0.5
+                        ? Colors.black
+                        : Colors.white,
+                  )),
             ),
           ],
         ),
@@ -363,45 +371,28 @@ class GenrePage extends StatefulWidget {
 }
 
 class _GenrePageState extends State<GenrePage> {
-  late final Future<List<Artist>> _f = Deezer.genreArtists(widget.genre.id);
+  late Future<List<YtSection>> _f = YTMusic.genre(widget.genre.id);
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: kBg,
       appBar: AppBar(title: Text(widget.genre.name, style: const TextStyle(fontWeight: FontWeight.w800))),
-      body: FutureBuilder<List<Artist>>(
+      body: FutureBuilder<List<YtSection>>(
         future: _f,
         builder: (context, s) {
-          if (s.hasError) return const Center(child: Text('Konnte nicht geladen werden', style: TextStyle(color: kMuted)));
-          if (!s.hasData) return const Center(child: CircularProgressIndicator());
-          final a = s.data!;
-          return GridView.builder(
-            padding: const EdgeInsets.all(16),
-            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-              crossAxisCount: 3,
-              mainAxisSpacing: 16,
-              crossAxisSpacing: 12,
-              childAspectRatio: 0.78,
-            ),
-            itemCount: a.length,
-            itemBuilder: (context, i) => GestureDetector(
-              onTap: () => openPage(ArtistPage(artistId: a[i].id)),
-              child: Column(
-                children: [
-                  LayoutBuilder(
-                    builder: (c, box) =>
-                        Cover(a[i].picture, size: box.maxWidth, circle: true, fallback: Icons.person_rounded),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(a[i].name,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      textAlign: TextAlign.center,
-                      style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 13)),
-                ],
+          if (s.hasError) {
+            return Center(
+              child: TextButton(
+                onPressed: () => setState(() => _f = YTMusic.genre(widget.genre.id)),
+                child: const Text('Erneut laden'),
               ),
-            ),
+            );
+          }
+          if (!s.hasData) return const Center(child: CircularProgressIndicator());
+          return ListView(
+            padding: const EdgeInsets.only(bottom: 24),
+            children: [for (final sec in s.data!) YtSectionCarousel(sec)],
           );
         },
       ),

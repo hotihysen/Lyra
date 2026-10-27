@@ -67,7 +67,7 @@ class _PlayerBodyState extends State<_PlayerBody> {
       final b = Store.instance.books[t.albumId];
       if (b != null) openPage(BookPage(book: b));
     } else if (t.albumId.isNotEmpty) {
-      openPage(AlbumPage(albumId: t.albumId));
+      openPage(AlbumPage(albumId: t.albumId, title: t.album, artist: t.artist));
     }
   }
 
@@ -165,7 +165,9 @@ class _PlayerBodyState extends State<_PlayerBody> {
                                       style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800, letterSpacing: -0.3)),
                                   const SizedBox(height: 2),
                                   GestureDetector(
-                                    onTap: t.artistId.isEmpty ? null : () => openPage(ArtistPage(artistId: t.artistId)),
+                                    onTap: t.isBook || t.artist.isEmpty
+                                        ? null
+                                        : () => openPage(ArtistPage(artistId: t.artistId, name: t.artist.split(',').first.trim())),
                                     child: Text(t.isBook ? t.album : t.artist,
                                         maxLines: 1,
                                         overflow: TextOverflow.ellipsis,

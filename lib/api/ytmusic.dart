@@ -195,6 +195,13 @@ bool _isViews(String s) {
       l.contains('abonnent') || l.contains('subscriber') || l.contains('zuschauer') || l.contains('listener');
 }
 
+/// «Künstler • 1,26 Mio. Zuschauer/Monat» → «1,26 Mio. Zuschauer/Monat»
+String _withoutTypeLabel(String s) => s
+    .split('•')
+    .map((p) => p.trim())
+    .where((p) => p.isNotEmpty && !_typeLabels.contains(p.toLowerCase()))
+    .join(' • ');
+
 String _albumType(String label) {
   final l = label.toLowerCase();
   if (l == 'single') return 'single';
@@ -305,7 +312,7 @@ YtItem? parseListItem(Map r) {
       kind: kind,
       id: id,
       title: title,
-      subtitle: kind == YtKind.artist ? meta.plain.join(' • ') : subtitle,
+      subtitle: kind == YtKind.artist ? _withoutTypeLabel(subtitle) : subtitle,
       artists: meta.artists,
       thumb: thumb,
       year: meta.year,
@@ -592,15 +599,15 @@ List _secondaryContents(Map j) =>
 Track _withAlbum(Track t, String title, String id) => Track(
     id: t.id, title: t.title, artist: t.artist, artistId: t.artistId, album: title, albumId: id, cover: t.cover, duration: t.duration);
 
-class PlaylistPage {
+class YtPlaylistPage {
   final PlaylistRef ref;
   final List<Track> tracks;
   final String description;
   final String? continuation;
-  const PlaylistPage(this.ref, this.tracks, this.description, this.continuation);
+  const YtPlaylistPage(this.ref, this.tracks, this.description, this.continuation);
 }
 
-PlaylistPage parsePlaylist(Map j, String id) {
+YtPlaylistPage parsePlaylist(Map j, String id) {
   final h = _responsiveHeader(j) ?? const {};
   final title = _text(h['title']);
   final cover = _thumb(_at(h, ['thumbnail', 'musicThumbnailRenderer', 'thumbnail', 'thumbnails']));
@@ -619,7 +626,7 @@ PlaylistPage parsePlaylist(Map j, String id) {
     cont = _continuationToken(items) ?? _at(shelf, ['continuations', 0, 'nextContinuationData', 'continuation']) as String?;
     if (tracks.isNotEmpty) break;
   }
-  return PlaylistPage(PlaylistRef(id: id, title: title, cover: cover, subtitle: second), tracks, desc, cont);
+  return YtPlaylistPage(PlaylistRef(id: id, title: title, cover: cover, subtitle: second), tracks, desc, cont);
 }
 
 (List<Track>, String?) parsePlaylistContinuation(Map j) {
@@ -767,6 +774,21 @@ class YTMusic {
 
     songs.sort((a, b) => score(a).compareTo(score(b)));
     return songs.first.id;
+  }
+
+  /// Für Einträge aus der früheren Deezer-Zeit: Künstler bzw. Album über den Namen finden.
+  static Future<String?> findArtistId(String name) async {
+    final r = (await search(name, filterArtists)).where((i) => i.kind == YtKind.artist).toList();
+    if (r.isEmpty) return null;
+    final exact = r.where((i) => i.title.toLowerCase() == name.toLowerCase());
+    return (exact.isNotEmpty ? exact.first : r.first).id;
+  }
+
+  static Future<String?> findAlbumId(String title, String artist) async {
+    final r = (await search('$title $artist', filterAlbums)).where((i) => i.kind == YtKind.album).toList();
+    if (r.isEmpty) return null;
+    final exact = r.where((i) => i.title.toLowerCase() == title.toLowerCase());
+    return (exact.isNotEmpty ? exact.first : r.first).id;
   }
 
   // ----- Seiten -----

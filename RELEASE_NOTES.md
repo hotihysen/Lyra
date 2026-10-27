@@ -12,6 +12,7 @@ Musik und Hörbücher für Android. Privates Lernprojekt.
 **Wechsel von einer Version bis 1.0.14:** Diese Versionen waren jeweils mit einem anderen Schlüssel signiert. Lyra einmalig deinstallieren und neu installieren; Bibliothek und Downloads der alten Installation gehen dabei verloren.
 
 ### Funktionen
+- Katalog von YouTube Music: Suche, Startseite, Künstler, Alben, Playlists, Genres und Mix; jeder Titel wird über seine YouTube-Music-ID abgespielt
 - Wiedergabe über die Extraktoren von SimpMusic (PipePipe, BravePipe), Reserve über Invidious
 - Startseite, Suche, Bibliothek, Künstler-, Album- und Playlist-Seiten
 - Player mit synchronen Songtexten, Warteschlange, Crossfade, Shuffle, Repeat, Tempo und Sleep-Timer

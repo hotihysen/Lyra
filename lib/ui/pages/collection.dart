@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../api/deezer.dart';
+import '../../api/ytmusic.dart';
 import '../../data/downloads.dart';
 import '../../data/models.dart';
 import '../../data/store.dart';
@@ -227,13 +227,26 @@ Widget _failed(String msg, VoidCallback retry) => Scaffold(
 
 class AlbumPage extends StatefulWidget {
   final String albumId;
-  const AlbumPage({super.key, required this.albumId});
+  // Für gespeicherte Alben aus der Deezer-Zeit: damit wird das Album in YouTube Music gesucht
+  final String? title;
+  final String? artist;
+  const AlbumPage({super.key, required this.albumId, this.title, this.artist});
   @override
   State<AlbumPage> createState() => _AlbumPageState();
 }
 
 class _AlbumPageState extends State<AlbumPage> {
-  late Future<(Album, List<Track>)> _f = Deezer.album(widget.albumId);
+  late Future<(Album, List<Track>)> _f = _load();
+
+  Future<(Album, List<Track>)> _load() async {
+    final id = widget.albumId;
+    if (id.startsWith('MPRE')) return YTMusic.album(id);
+    final found = await YTMusic.findAlbumId(widget.title ?? '', widget.artist ?? '');
+    if (found == null) throw Exception('Album in YouTube Music nicht gefunden');
+    final r = await YTMusic.album(found);
+    Store.instance.migrateAlbum(id, r.$1);
+    return r;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -242,7 +255,7 @@ class _AlbumPageState extends State<AlbumPage> {
       builder: (context, s) {
         if (s.hasError) {
           return _failed('Album konnte nicht geladen werden',
-              () => setState(() => _f = Deezer.album(widget.albumId)));
+              () => setState(() => _f = _load()));
         }
         if (!s.hasData) return _loading();
         final (album, tracks) = s.data!;
@@ -250,7 +263,7 @@ class _AlbumPageState extends State<AlbumPage> {
         return CollectionView(
           title: album.title,
           subtitle: '${album.artist} · ${album.typeLabel}${album.year.isEmpty ? '' : ' · ${album.year}'}',
-          onSubtitleTap: album.artistId.isEmpty ? null : () => openPage(ArtistPage(artistId: album.artistId)),
+          onSubtitleTap: album.artistId.startsWith('UC') ? () => openPage(ArtistPage(artistId: album.artistId)) : null,
           coverUrl: album.cover,
           tracks: tracks,
           numbered: true,
@@ -275,7 +288,7 @@ class _AlbumPageState extends State<AlbumPage> {
   }
 }
 
-// ---------- Deezer-Playlist ----------
+// ---------- YouTube-Music-Playlist ----------
 
 class PlaylistPage extends StatefulWidget {
   final String playlistId;
@@ -285,7 +298,7 @@ class PlaylistPage extends StatefulWidget {
 }
 
 class _PlaylistPageState extends State<PlaylistPage> {
-  late Future<(PlaylistRef, List<Track>, String)> _f = Deezer.playlist(widget.playlistId);
+  late Future<(PlaylistRef, List<Track>, String)> _f = YTMusic.playlist(widget.playlistId);
 
   @override
   Widget build(BuildContext context) {
@@ -294,7 +307,7 @@ class _PlaylistPageState extends State<PlaylistPage> {
       builder: (context, s) {
         if (s.hasError) {
           return _failed('Playlist konnte nicht geladen werden',
-              () => setState(() => _f = Deezer.playlist(widget.playlistId)));
+              () => setState(() => _f = YTMusic.playlist(widget.playlistId)));
         }
         if (!s.hasData) return _loading();
         final (p, tracks, desc) = s.data!;
