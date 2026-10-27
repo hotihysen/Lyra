@@ -42,7 +42,10 @@ jobs:
           code=$(curl -s -o song.m4a -w '%{http_code}' -H 'X-Lyra-Key: test' localhost:8080/audio/lYBUbBu4W08)
           size=$(stat -c %s song.m4a)
           echo "::notice title=Probelauf YouTube::HTTP $code, $size Bytes, $(file -b song.m4a | cut -c1-80)"
-          [ "$code" = 200 ] || { head -c 400 song.m4a; docker logs ls | tail -20; }
+          if [ "$code" != 200 ]; then
+            msg=$( (head -c 500 song.m4a; echo; curl -s -H 'X-Lyra-Key: test' localhost:8080/health) | sed 's/%/%25/g' | awk 'BEGIN{ORS="%0A"}{print}')
+            echo "::notice title=Probelauf Antwort::$msg"
+          fi
           docker rm -f ls
 
       - name: Bei GitHub anmelden
