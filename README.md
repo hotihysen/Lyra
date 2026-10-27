@@ -2,8 +2,8 @@
 
 Musik und Hörbücher für Android. Privates Lernprojekt in Flutter.
 
-- Katalog, Cover, Charts und Empfehlungen: Deezer (öffentliche API)
-- Wiedergabe: Audio von YouTube, passend zum Deezer-Titel gesucht
+- Katalog, Cover, Startseite, Mix und Empfehlungen: YouTube Music (wie Lyra Music)
+- Wiedergabe: Audio genau zur YouTube-Music-Video-ID des Titels
 - Songtexte (synchron): LRCLIB
 - Hörbücher: LibriVox (gemeinfrei), mit Kapiteln, Weiterhören und Tempo bis 3×
 - Crossfade, Warteschlange, Shuffle/Repeat, Sleep-Timer, Offline-Downloads, Playlists, Künstler folgen, sechs Farbthemes

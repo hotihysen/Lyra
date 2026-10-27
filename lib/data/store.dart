@@ -43,7 +43,10 @@ class Store extends ChangeNotifier {
     recent = _list('recent', Track.fromJson);
     downloads = {for (final t in _list('downloads', Track.fromJson)) t.id: t};
     books = {for (final b in _list('books', Book.fromJson)) b.id: b};
-    ytIds = Map<String, String>.from((_box.get('yt') as Map?) ?? const {});
+    // Zuordnungen alter Titel (ohne Video-ID) zu YouTube Music. Die frühere Zuordnung über die
+    // allgemeine YouTube-Suche ('yt') war die Ursache falscher Titel und wird verworfen.
+    ytIds = Map<String, String>.from((_box.get('ytm') as Map?) ?? const {});
+    if (_box.containsKey('yt')) _box.delete('yt');
     final p = (_box.get('progress') as Map?) ?? const {};
     progress = {for (final e in p.entries) '${e.key}': Map.from(e.value as Map)};
     final dir = await getApplicationDocumentsDirectory();
@@ -79,6 +82,23 @@ class Store extends ChangeNotifier {
       likedAlbums.insert(0, a);
     }
     _put('likedAlbums', likedAlbums);
+  }
+
+  /// Ersetzt einen Eintrag aus der Deezer-Zeit durch den gefundenen YouTube-Music-Eintrag.
+  void migrateAlbum(String oldId, Album a) {
+    final i = likedAlbums.indexWhere((e) => e.id == oldId);
+    if (i < 0) return;
+    likedAlbums[i] = a;
+    likedAlbums = [for (var j = 0; j < likedAlbums.length; j++) if (j == i || likedAlbums[j].id != a.id) likedAlbums[j]];
+    _put('likedAlbums', likedAlbums);
+  }
+
+  void migrateArtist(String oldId, Artist a) {
+    final i = followed.indexWhere((e) => e.id == oldId);
+    if (i < 0) return;
+    followed[i] = a;
+    followed = [for (var j = 0; j < followed.length; j++) if (j == i || followed[j].id != a.id) followed[j]];
+    _put('followed', followed);
   }
 
   // Künstler
@@ -160,15 +180,16 @@ class Store extends ChangeNotifier {
     _put('recent', recent);
   }
 
-  // YouTube-Zuordnung (Deezer-ID -> Video-ID)
+  // Zuordnung alter Titel (Deezer-ID) zur YouTube-Music-Video-ID
   void setYt(String id, String vid) {
+    if (id == vid) return;
     ytIds[id] = vid;
-    _box.put('yt', ytIds);
+    _box.put('ytm', ytIds);
   }
 
   void clearYt() {
     ytIds.clear();
-    _box.put('yt', ytIds);
+    _box.put('ytm', ytIds);
     notifyListeners();
   }
 

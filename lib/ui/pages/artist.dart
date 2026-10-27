@@ -1,7 +1,8 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
-import '../../api/deezer.dart';
+import '../../api/ytmusic.dart';
+import '../../data/store.dart';
 import '../../main.dart';
 import '../shell.dart';
 import '../theme.dart';
@@ -10,14 +11,25 @@ import 'collection.dart';
 
 class ArtistPage extends StatefulWidget {
   final String artistId;
-  const ArtistPage({super.key, required this.artistId});
+  final String? name; // für gefolgte Künstler aus der Deezer-Zeit
+  const ArtistPage({super.key, required this.artistId, this.name});
   @override
   State<ArtistPage> createState() => _ArtistPageState();
 }
 
 class _ArtistPageState extends State<ArtistPage> {
-  late Future<ArtistData> _f = Deezer.artistFull(widget.artistId);
+  late Future<ArtistData> _f = _load();
   bool _more = false;
+
+  Future<ArtistData> _load() async {
+    final id = widget.artistId;
+    if (id.startsWith('UC')) return YTMusic.artist(id);
+    final found = await YTMusic.findArtistId(widget.name ?? '');
+    if (found == null) throw Exception('Künstler in YouTube Music nicht gefunden');
+    final d = await YTMusic.artist(found);
+    Store.instance.migrateArtist(id, d.artist);
+    return d;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -32,7 +44,7 @@ class _ArtistPageState extends State<ArtistPage> {
                 const Text('Künstler konnte nicht geladen werden', style: TextStyle(color: kMuted)),
                 const SizedBox(height: 12),
                 OutlinedButton(
-                  onPressed: () => setState(() => _f = Deezer.artistFull(widget.artistId)),
+                  onPressed: () => setState(() => _f = _load()),
                   child: const Text('Erneut versuchen'),
                 ),
               ]),
@@ -79,8 +91,8 @@ class _ArtistPageState extends State<ArtistPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      if (a.fans > 0)
-                        Text('${fmtFans(a.fans)} Fans', style: const TextStyle(color: kMuted, fontSize: 13.5)),
+                      if (a.info.isNotEmpty)
+                        Text(a.info, style: const TextStyle(color: kMuted, fontSize: 13.5)),
                       const SizedBox(height: 8),
                       Row(
                         children: [
@@ -98,9 +110,19 @@ class _ArtistPageState extends State<ArtistPage> {
                             );
                           }),
                           IconButton(
-                            tooltip: 'Künstler-Radio',
+                            tooltip: 'Mix des Künstlers',
                             icon: const Icon(Icons.radio_rounded),
-                            onPressed: () => startArtistRadio(context, a.id),
+                            onPressed: () async {
+                              toast(context, 'Mix wird geladen …');
+                              try {
+                                final vid = d.radioVideoId ?? (d.top.isEmpty ? null : d.top.first.id);
+                                if (vid == null) throw Exception('kein Mix');
+                                final r = await YTMusic.radio(vid, playlistId: d.radioPlaylistId);
+                                await audio.playTracks(r.tracks);
+                              } catch (_) {
+                                if (context.mounted) toast(context, 'Mix konnte nicht geladen werden');
+                              }
+                            },
                           ),
                           const Spacer(),
                           IconButton(
@@ -116,7 +138,17 @@ class _ArtistPageState extends State<ArtistPage> {
                   ),
                 ),
               ),
-              const SliverToBoxAdapter(child: SectionTitle('Beliebt')),
+              SliverToBoxAdapter(
+                child: SectionTitle(
+                  'Beliebt',
+                  trailing: d.songsBrowseId == null
+                      ? null
+                      : TextButton(
+                          onPressed: () => openPage(PlaylistPage(playlistId: d.songsBrowseId!)),
+                          child: const Text('Alle Songs', style: TextStyle(color: kMuted, fontWeight: FontWeight.w700)),
+                        ),
+                ),
+              ),
               SliverList.builder(
                 itemCount: top.length,
                 itemBuilder: (context, i) => TrackTile(
@@ -141,14 +173,42 @@ class _ArtistPageState extends State<ArtistPage> {
                 ),
               SliverToBoxAdapter(
                 child: Carousel(
-                  title: 'Diskografie',
+                  title: 'Alben',
                   items: [
                     for (final al in d.albums)
                       CardItem(
                         image: al.cover,
                         title: al.title,
-                        subtitle: '${al.year} · ${al.typeLabel}',
+                        subtitle: [al.year, al.typeLabel].where((x) => x.isNotEmpty).join(' · '),
                         onTap: () => openPage(AlbumPage(albumId: al.id)),
+                      ),
+                  ],
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Carousel(
+                  title: 'Singles & EPs',
+                  items: [
+                    for (final al in d.singles)
+                      CardItem(
+                        image: al.cover,
+                        title: al.title,
+                        subtitle: [al.year, al.typeLabel].where((x) => x.isNotEmpty).join(' · '),
+                        onTap: () => openPage(AlbumPage(albumId: al.id)),
+                      ),
+                  ],
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Carousel(
+                  title: 'Playlists',
+                  items: [
+                    for (final p in d.playlists)
+                      CardItem(
+                        image: p.cover,
+                        title: p.title,
+                        subtitle: p.subtitle,
+                        onTap: () => openPage(PlaylistPage(playlistId: p.id)),
                       ),
                   ],
                 ),

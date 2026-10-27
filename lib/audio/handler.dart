@@ -5,7 +5,7 @@ import 'package:audio_session/audio_session.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 
-import '../api/deezer.dart';
+import '../api/ytmusic.dart';
 import '../api/youtube.dart';
 import '../data/models.dart';
 import '../data/store.dart';
@@ -130,6 +130,8 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
 
   Future<void> playTracks(List<Track> list, {int start = 0, bool shuffled = false}) async {
     if (list.isEmpty) return;
+    _radioCont = null;
+    _radioList = null;
     _original = List.of(list);
     tracks = List.of(list);
     if (shuffled) {
@@ -299,16 +301,30 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
     skipToNext();
   }
 
+  // Fortsetzung des YouTube-Music-Mix für «Als Nächstes»
+  String? _radioCont;
+  String? _radioList;
+
+  /// Am Ende der Warteschlange: weiter mit dem Mix von YouTube Music zum aktuellen Titel.
   Future<void> _autoplay() async {
     final t = current.value;
-    if (t == null || t.isBook || t.artistId.isEmpty) {
+    if (t == null || t.isBook) {
       await _p.pause();
       await _p.seek(Duration.zero);
       return;
     }
     try {
       final known = tracks.map((e) => e.id).toSet();
-      final more = (await Deezer.artistRadio(t.artistId)).where((e) => !known.contains(e.id)).toList();
+      RadioResult r;
+      if (_radioCont != null) {
+        r = await YTMusic.radioMore(_radioCont!, _radioList);
+      } else {
+        final vid = (await YT.candidates(t)).first;
+        r = await YTMusic.radio(vid);
+      }
+      _radioCont = r.continuation;
+      _radioList = r.playlistId;
+      final more = r.tracks.where((e) => !known.contains(e.id)).toList();
       if (more.isEmpty) throw Exception('leer');
       tracks.addAll(more);
       _original.addAll(more);
@@ -594,7 +610,7 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<List<MediaItem>> search(String query, [Map<String, dynamic>? extras]) async {
     if (query.trim().isEmpty) return [];
     try {
-      final r = await Deezer.searchTracks(query.trim());
+      final r = await YTMusic.searchTracks(query.trim());
       _autoSearch
         ..clear()
         ..addEntries(r.take(30).map((t) => MapEntry(t.id, t)));
@@ -616,10 +632,20 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
       return;
     }
     try {
-      final r = await Deezer.searchTracks(q);
+      // Wie YouTube Music: bester Treffer, danach dessen Mix
+      final r = await YTMusic.searchTracks(q);
       if (r.isEmpty) return;
-      // Treffer der Suche als Warteschlange, bester Treffer zuerst
-      await playTracks(r.take(20).toList());
+      final first = r.first;
+      var queue = <Track>[first];
+      try {
+        final radio = await YTMusic.radio(first.id);
+        queue = [first, ...radio.tracks.where((t) => t.id != first.id)];
+        await playTracks(queue);
+        _radioCont = radio.continuation;
+        _radioList = radio.playlistId;
+        return;
+      } catch (_) {}
+      await playTracks(queue);
     } catch (_) {}
   }
 }

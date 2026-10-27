@@ -10,6 +10,7 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../data/models.dart';
 import 'invidious.dart';
+import 'ytmusic.dart';
 import '../data/store.dart';
 
 /// Ein Abrufweg zu YouTube (verschiedene App-Kennungen werden unterschiedlich behandelt).
@@ -175,7 +176,7 @@ class _ProgressiveSource extends StreamAudioSource {
   }
 }
 
-/// Findet zu einem Deezer-Titel das passende YouTube-Video und liefert dessen Audio.
+/// Liefert das Audio zur YouTube-Music-Video-ID eines Titels.
 class YT {
   static final _yt = YoutubeExplode();
   static final _manifests = <String, (DateTime, YtResolved)>{};
@@ -204,32 +205,17 @@ class YT {
     }
   }
 
-  static int _score(Track t, Video v) {
-    final d = v.duration?.inSeconds ?? 0;
-    if (d == 0) return 1 << 20;
-    var score = t.duration > 0 ? (d - t.duration).abs() : 0;
-    final title = t.title.toLowerCase();
-    final vt = v.title.toLowerCase();
-    for (final bad in ['live', 'cover', 'remix', 'karaoke', 'instrumental', 'sped up', 'slowed', 'reaction', '8d']) {
-      if (vt.contains(bad) && !title.contains(bad)) score += 45;
-    }
-    if (v.author.toLowerCase().endsWith('- topic')) score -= 12;
-    if (vt.contains('official audio')) score -= 6;
-    if (vt.contains('lyrics') || vt.contains('lyric video')) score -= 2;
-    return score;
-  }
-
-  /// Bis zu fünf Kandidaten, der beste zuerst.
+  /// Die Video-ID, die abgespielt wird. Wie bei Lyra Music: Titel aus YouTube Music tragen ihre
+  /// ID selbst und werden genau so abgespielt, ohne Suche. Nur alte Titel ohne ID (aus der früheren
+  /// Deezer-Zeit) werden einmal in YouTube Music gesucht und die Zuordnung gespeichert.
   static Future<List<String>> candidates(Track t) async {
-    final results = await _yt.search.search('${t.artist} ${t.title} audio');
-    final list = results.take(12).toList()..sort((a, b) => _score(t, a).compareTo(_score(t, b)));
-    final ids = list.map((v) => v.id.value).toList();
+    if (t.isYouTube) return [t.id];
     final cached = Store.instance.ytIds[t.id];
-    if (cached != null) {
-      ids.remove(cached);
-      ids.insert(0, cached);
-    }
-    return ids.take(5).toList();
+    if (cached != null) return [cached];
+    final vid = await YTMusic.findVideoId(t);
+    if (vid == null) throw Exception('In YouTube Music nicht gefunden');
+    Store.instance.setYt(t.id, vid);
+    return [vid];
   }
 
   static Future<YtResolved> _manifest(String vid, YtClientOption o) async {

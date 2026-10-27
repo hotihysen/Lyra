@@ -1,0 +1,35 @@
+name: YouTube-Music-Antworten erfassen
+
+# Holt echte Antworten von YouTube Music als Testmaterial und legt sie im Branch
+# ytm-fixtures ab. Nur manuell oder bei Änderungen am Erfassungsskript.
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main, ytm-fixtures]
+    paths: ['tool/ytm_probe.dart']
+
+permissions:
+  contents: write
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - name: Antworten holen
+        run: |
+          mkdir -p /tmp/p && cd /tmp/p
+          printf 'name: probe\nenvironment:\n  sdk: ">=3.5.0 <4.0.0"\ndependencies:\n  http: ^1.2.0\n' > pubspec.yaml
+          mkdir -p bin && cp "$GITHUB_WORKSPACE/tool/ytm_probe.dart" bin/
+          dart pub get >/dev/null
+          dart run bin/ytm_probe.dart /tmp/fixtures
+          msg=$(sed 's/%/%25/g' /tmp/fixtures/_log.txt | awk 'BEGIN{ORS="%0A"}{print}')
+          echo "::notice title=Erfassung::$msg"
+      - name: In Branch ytm-fixtures ablegen
+        run: |
+          cd /tmp/fixtures
+          git init -q -b ytm-fixtures
+          git add -A
+          git -c user.name=ci -c user.email=ci@local commit -qm "YouTube-Music-Antworten $(date -u +%F' '%T)"
+          git push -fq "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" ytm-fixtures
