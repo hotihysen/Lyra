@@ -47,6 +47,26 @@ jobs:
             exit 1
           fi
 
+      - name: Echte YouTube-Music-Antworten holen (Testmaterial)
+        uses: actions/checkout@v4
+        with:
+          ref: ytm-fixtures
+          path: ytm-fixtures
+
+      - name: Tests des YouTube-Music-Parsers
+        env:
+          YTM_FIXTURES: ${{ github.workspace }}/ytm-fixtures
+        run: |
+          set -o pipefail
+          ok=1
+          flutter test test/ytmusic_parse_test.dart --reporter expanded 2>&1 | tee ytm.log || ok=0
+          [ -f ytm-fixtures/_parse_report.txt ] && { msg=$(sed 's/%/%25/g' ytm-fixtures/_parse_report.txt | cut -c1-400 | awk 'BEGIN{ORS="%0A"}{print}'); echo "::notice title=Parser-Bericht::$msg"; }
+          if [ $ok = 0 ]; then
+            msg=$(grep -E "Expected|Actual|Error|FAILED|Which|\[E\]|ytmusic" ytm.log | head -40 | sed 's/%/%25/g' | cut -c1-300 | awk 'BEGIN{ORS="%0A"}{print}')
+            echo "::error title=Parser-Tests fehlgeschlagen::$msg"
+            exit 1
+          fi
+
       - name: APK bauen
         run: |
           set -o pipefail

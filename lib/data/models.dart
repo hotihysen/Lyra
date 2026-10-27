@@ -1,11 +1,11 @@
 String _s(dynamic v) => v == null ? '' : '$v';
 int _i(dynamic v) => v is num ? v.toInt() : (int.tryParse('${v ?? ''}') ?? 0);
 
-String _cover(Map? m) =>
-    _s(m?['cover_xl'] ?? m?['cover_big'] ?? m?['cover_medium'] ?? m?['cover']);
+final _videoIdRe = RegExp(r'^[A-Za-z0-9_-]{11}$');
+final _digitsRe = RegExp(r'^\d+$');
 
-String _picture(Map? m) =>
-    _s(m?['picture_xl'] ?? m?['picture_big'] ?? m?['picture_medium'] ?? m?['picture']);
+/// true für eine YouTube-Video-ID (11 Zeichen, nicht nur Ziffern wie alte Deezer-IDs).
+bool isVideoId(String id) => _videoIdRe.hasMatch(id) && !_digitsRe.hasMatch(id);
 
 class Track {
   final String id;
@@ -34,21 +34,8 @@ class Track {
 
   bool get isBook => kind == 'book';
 
-  factory Track.fromDeezer(Map j, {Map? album}) {
-    final al = j['album'] as Map?;
-    final ar = (j['artist'] as Map?) ?? (album?['artist'] as Map?);
-    final c = _cover(al);
-    return Track(
-      id: _s(j['id']),
-      title: _s(j['title']),
-      artist: _s(ar?['name']),
-      artistId: _s(ar?['id']),
-      album: _s(al?['title'] ?? album?['title']),
-      albumId: _s(al?['id'] ?? album?['id']),
-      cover: c.isNotEmpty ? c : _cover(album),
-      duration: _i(j['duration']),
-    );
-  }
+  /// Titel aus dem YouTube-Music-Katalog (ID ist die Video-ID).
+  bool get isYouTube => !isBook && isVideoId(id);
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -82,14 +69,13 @@ class Artist {
   final String name;
   final String picture;
   final int fans;
-  const Artist({required this.id, required this.name, this.picture = '', this.fans = 0});
+  final String info; // z.B. «1,26 Mio. Zuschauer/Monat»
+  const Artist({required this.id, required this.name, this.picture = '', this.fans = 0, this.info = ''});
 
-  factory Artist.fromDeezer(Map j) =>
-      Artist(id: _s(j['id']), name: _s(j['name']), picture: _picture(j), fans: _i(j['nb_fan']));
 
-  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'picture': picture, 'fans': fans};
-  factory Artist.fromJson(Map j) =>
-      Artist(id: _s(j['id']), name: _s(j['name']), picture: _s(j['picture']), fans: _i(j['fans']));
+  Map<String, dynamic> toJson() => {'id': id, 'name': name, 'picture': picture, 'fans': fans, 'info': info};
+  factory Artist.fromJson(Map j) => Artist(
+      id: _s(j['id']), name: _s(j['name']), picture: _s(j['picture']), fans: _i(j['fans']), info: _s(j['info']));
 }
 
 class Album {
@@ -110,19 +96,6 @@ class Album {
     this.type = 'album',
   });
 
-  factory Album.fromDeezer(Map j, {Artist? artist}) {
-    final ar = j['artist'] as Map?;
-    final date = _s(j['release_date']);
-    return Album(
-      id: _s(j['id']),
-      title: _s(j['title']),
-      artist: ar != null ? _s(ar['name']) : (artist?.name ?? ''),
-      artistId: ar != null ? _s(ar['id']) : (artist?.id ?? ''),
-      cover: _cover(j),
-      year: date.length >= 4 ? date.substring(0, 4) : '',
-      type: _s(j['record_type']).isEmpty ? 'album' : _s(j['record_type']),
-    );
-  }
 
   String get typeLabel {
     switch (type) {
@@ -164,24 +137,14 @@ class PlaylistRef {
   final String subtitle;
   const PlaylistRef({required this.id, required this.title, this.cover = '', this.subtitle = ''});
 
-  factory PlaylistRef.fromDeezer(Map j) {
-    final n = _i(j['nb_tracks']);
-    final user = (j['user'] as Map?) ?? (j['creator'] as Map?);
-    return PlaylistRef(
-      id: _s(j['id']),
-      title: _s(j['title']),
-      cover: _picture(j),
-      subtitle: n > 0 ? '$n Titel' : _s(user?['name']),
-    );
-  }
 }
 
 class Genre {
-  final String id;
+  final String id; // bei YouTube Music die «params» der Kategorie
   final String name;
   final String picture;
-  const Genre(this.id, this.name, this.picture);
-  factory Genre.fromDeezer(Map j) => Genre(_s(j['id']), _s(j['name']), _picture(j));
+  final int color; // ARGB, 0 = keine Angabe
+  const Genre(this.id, this.name, this.picture, [this.color = 0]);
 }
 
 class UserPlaylist {
