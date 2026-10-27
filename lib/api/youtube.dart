@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -10,6 +11,7 @@ import 'package:youtube_explode_dart/youtube_explode_dart.dart';
 
 import '../data/models.dart';
 import 'invidious.dart';
+import 'server.dart';
 import 'ytmusic.dart';
 import '../data/store.dart';
 
@@ -68,7 +70,7 @@ class _Progressive {
   }
 
   /// Lädt per HTTP und setzt nach Verbindungsabbrüchen an derselben Stelle fort.
-  Future<void> runHttp(Uri url, Map<String, String> headers) async {
+  Future<void> runHttp(Uri url, Map<String, String> headers, {Duration sendTimeout = const Duration(seconds: 20)}) async {
     final raf = await file.open(mode: FileMode.write);
     var failures = 0;
     try {
@@ -76,7 +78,7 @@ class _Progressive {
         final client = http.Client();
         try {
           final req = http.Request('GET', url)..headers.addAll({...headers, 'Range': 'bytes=$written-'});
-          final res = await client.send(req).timeout(const Duration(seconds: 20));
+          final res = await client.send(req).timeout(sendTimeout);
           if (res.statusCode != 200 && res.statusCode != 206) throw Exception('Server ${res.statusCode}');
           if (res.statusCode == 200 && written > 0) {
             // Server kann nicht fortsetzen: von vorne
@@ -118,8 +120,8 @@ class _Progressive {
       _changes.stream.first.timeout(const Duration(seconds: 15), onTimeout: () {});
 
   /// Wartet, bis die ersten Bytes da sind (oder ein Fehler).
-  Future<void> waitForStart() async {
-    final until = DateTime.now().add(const Duration(seconds: 20));
+  Future<void> waitForStart([Duration max = const Duration(seconds: 20)]) async {
+    final until = DateTime.now().add(max);
     while (written == 0 && error == null && !done) {
       if (DateTime.now().isAfter(until)) throw TimeoutException('Keine Daten vom Server');
       await waitForChange();
@@ -188,6 +190,7 @@ class YT {
 
   /// Native Extraktion (PipePipe / BravePipe) im Android-Teil der App.
   static Future<({Uri url, String mime, String ext, String ua, String source})> native(String vid) async {
+    if (!Platform.isAndroid) throw Exception('nur auf Android');
     try {
       final r = await _ch.invokeMapMethod<String, dynamic>('audio', {'id': vid}).timeout(const Duration(seconds: 40));
       if (r == null) throw Exception('keine Antwort');
@@ -274,7 +277,33 @@ class YT {
     throw Exception('Kein Abrufweg hat Audio geliefert');
   }
 
+  /// Lädt [url] in eine Datei, während der Player schon daraus liest.
+  static Future<AudioSource> _stream(Track t, String prefix, Uri url, Map<String, String> headers, String mime,
+      {int size = 0, Duration wait = const Duration(seconds: 20)}) async {
+    final dir = await getTemporaryDirectory();
+    final ext = mime == 'audio/webm' ? 'webm' : 'm4a';
+    final p = _Progressive(File('${dir.path}/${prefix}_${t.id}.$ext'), size);
+    unawaited(p.runHttp(url, headers, sendTimeout: wait));
+    await p.waitForStart(wait);
+    _cache[t.id] = p;
+    _trimCache();
+    if (p.total <= 0) {
+      // Grösse unbekannt: warten, bis die Datei vollständig ist.
+      while (!p.done && p.error == null) {
+        await p.waitForChange();
+      }
+      if (p.error != null) throw p.error!;
+      return AudioSource.file(p.file.path);
+    }
+    return _ProgressiveSource(p, mime);
+  }
+
+  /// Der eigene Server lädt beim ersten Abruf den ganzen Song, deshalb länger warten.
+  static const _serverWait = Duration(seconds: 90);
+
   /// Audioquelle für den Player: wird gestreamt und gleichzeitig zwischengespeichert.
+  /// Reihenfolge auf Android: Extraktoren, eigener Server, Invidious, direkt.
+  /// Auf dem iPhone: eigener Server, Invidious (nur AAC), direkt.
   static Future<AudioSource> audioSource(Track t) async {
     final old = _cache[t.id];
     if (old != null && old.done && old.file.existsSync()) {
@@ -283,59 +312,47 @@ class YT {
     final errors = <String>[];
     final ids = await candidates(t);
     if (ids.isEmpty) throw Exception('Kein passendes Video gefunden');
-    // 1. Wie SimpMusic: native Extraktoren (PipePipe, BravePipe)
-    for (final vid in ids.take(2)) {
+    final vid = ids.first;
+
+    Future<AudioSource?> viaServer() async {
+      if (!LyraServer.configured) return null;
+      try {
+        final a = await _stream(t, 'srv', LyraServer.audioUrl(vid), LyraServer.headers, 'audio/mp4', wait: _serverWait);
+        Store.instance.setYt(t.id, vid);
+        return a;
+      } catch (e) {
+        errors.add('Eigener Server: ${_short(e)}');
+        return null;
+      }
+    }
+
+    if (Platform.isAndroid) {
+      // 1. Wie SimpMusic: native Extraktoren (PipePipe, BravePipe)
       try {
         final n = await native(vid);
         Store.instance.setYt(t.id, vid);
-        final dir = await getTemporaryDirectory();
-        final p = _Progressive(File('${dir.path}/yt_${t.id}.${n.ext}'), 0);
-        unawaited(p.runHttp(n.url, {'User-Agent': n.ua}));
-        await p.waitForStart();
-        _cache[t.id] = p;
-        _trimCache();
-        if (p.total <= 0) {
-          while (!p.done && p.error == null) {
-            await p.waitForChange();
-          }
-          if (p.error != null) throw p.error!;
-          return AudioSource.file(p.file.path);
-        }
-        return _ProgressiveSource(p, n.mime);
+        return await _stream(t, 'yt', n.url, {'User-Agent': n.ua}, n.mime);
       } catch (e) {
         errors.add('Extraktor: ${_short(e)}');
       }
     }
-    // 2. Invidious-Server
-    for (final vid in ids.take(2)) {
-      try {
-        final a = await Invidious.audio(vid, errors: errors);
-        Store.instance.setYt(t.id, vid);
-        final dir = await getTemporaryDirectory();
-        final ext = a.mime == 'audio/webm' ? 'webm' : 'm4a';
-        final p = _Progressive(File('${dir.path}/inv_${t.id}.$ext'), a.size);
-        unawaited(p.runHttp(a.url, const {'User-Agent': 'Mozilla/5.0 (Linux; Android 14) Lyra/1.0'}));
-        await p.waitForStart();
-        _cache[t.id] = p;
-        _trimCache();
-        if (p.total <= 0) {
-          while (!p.done && p.error == null) {
-            await p.waitForChange();
-          }
-          if (p.error != null) throw p.error!;
-          return AudioSource.file(p.file.path);
-        }
-        return _ProgressiveSource(p, a.mime);
-      } catch (e) {
-        errors.add('Invidious: ${_short(e)}');
-      }
+    final srv = await viaServer();
+    if (srv != null) return srv;
+    // Invidious-Server
+    try {
+      final a = await Invidious.audio(vid, errors: errors);
+      if (!Platform.isAndroid && a.mime == 'audio/webm') throw Exception('nur WebM, auf dem iPhone nicht abspielbar');
+      Store.instance.setYt(t.id, vid);
+      return await _stream(t, 'inv', a.url, const {'User-Agent': 'Mozilla/5.0 (Linux; Android 14) Lyra/1.0'}, a.mime,
+          size: a.size);
+    } catch (e) {
+      errors.add('Invidious: ${_short(e)}');
     }
     // Reserve: direkt bei YouTube
-    final (r, p) = await _open(t, ids: ids.take(1).toList(), earlier: errors);
+    final (r, p) = await _open(t, ids: [vid], earlier: errors);
     _cache[t.id] = p;
     _trimCache();
     if (p.total <= 0) {
-      // Grösse unbekannt: warten, bis die Datei vollständig ist.
       while (!p.done && p.error == null) {
         await p.waitForChange();
       }
@@ -360,28 +377,43 @@ class YT {
 
   static Future<void> download(Track t, File f, void Function(double) onProgress) async {
     final cached = _cache[t.id];
-    if (cached != null && cached.done && cached.file.existsSync()) {
+    if (cached != null && cached.done && cached.file.existsSync() && !cached.file.path.endsWith('.webm')) {
       await cached.file.copy(f.path);
       onProgress(1);
       return;
     }
+    final ids = await candidates(t);
+    final vid = ids.first;
+
+    Future<bool> viaHttp(Uri url, Map<String, String> headers, {Duration wait = const Duration(seconds: 20)}) async {
+      final p = _Progressive(File('${f.path}.part'), 0);
+      final run = p.runHttp(url, headers, sendTimeout: wait);
+      while (!p.done && p.error == null) {
+        if (p.total > 0) onProgress(p.written / p.total);
+        await Future.any([run, p.waitForChange()]);
+      }
+      if (p.error == null && p.written > 0) {
+        await p.file.rename(f.path);
+        return true;
+      }
+      return false;
+    }
+
+    if (Platform.isAndroid) {
+      try {
+        final n = await native(vid);
+        if (await viaHttp(n.url, {'User-Agent': n.ua})) return;
+      } catch (_) {}
+    }
+    if (LyraServer.configured) {
+      try {
+        onProgress(0.01);
+        if (await viaHttp(LyraServer.audioUrl(vid), LyraServer.headers, wait: _serverWait)) return;
+      } catch (_) {}
+    }
     try {
-      final ids = await candidates(t);
-      if (ids.isNotEmpty) {
-        try {
-          final n = await native(ids.first);
-          final p = _Progressive(File('${f.path}.part'), 0);
-          final run = p.runHttp(n.url, {'User-Agent': n.ua});
-          while (!p.done && p.error == null) {
-            if (p.total > 0) onProgress(p.written / p.total);
-            await Future.any([run, p.waitForChange()]);
-          }
-          if (p.error == null && p.written > 0) {
-            await p.file.rename(f.path);
-            return;
-          }
-        } catch (_) {}
-        final a = await Invidious.audio(ids.first);
+      final a = await Invidious.audio(vid);
+      if (Platform.isAndroid || a.mime != 'audio/webm') {
         await _httpDownload(a.url, f, onProgress);
         return;
       }
@@ -439,7 +471,23 @@ class YT {
       add('Suche: FEHLER ${_short(e)}');
       return out;
     }
-    try {
+    if (LyraServer.configured) {
+      add('Eigener Server: ${await LyraServer.test()}');
+      try {
+        final sw = Stopwatch()..start();
+        final r = await http
+            .get(LyraServer.audioUrl(vid), headers: {...LyraServer.headers, 'Range': 'bytes=0-1023'})
+            .timeout(_serverWait);
+        add(r.statusCode == 206 || r.statusCode == 200
+            ? 'Eigener Server: Audio ok in ${(sw.elapsedMilliseconds / 1000).toStringAsFixed(1)} s'
+            : 'Eigener Server: Audio FEHLER ${r.statusCode} ${utf8.decode(r.bodyBytes, allowMalformed: true)}');
+      } catch (e) {
+        add('Eigener Server: Audio FEHLER ${_short(e)}');
+      }
+    } else {
+      add('Eigener Server: nicht eingerichtet');
+    }
+    if (Platform.isAndroid) try {
       final sw = Stopwatch()..start();
       final n = await native(vid);
       add('Extraktor (wie SimpMusic): ok über ${n.source} in ${(sw.elapsedMilliseconds / 1000).toStringAsFixed(1)} s');

@@ -1,4 +1,9 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../api/server.dart';
 
 import '../../data/store.dart';
 import '../../data/updater.dart';
@@ -28,6 +33,13 @@ class SettingsPage extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 32),
           children: [
             _h('App'),
+            if (!Platform.isAndroid)
+              ListTile(
+                title: Text('Lyra ${Updater.version}'),
+                subtitle: const Text('Updates kommen über SideStore', style: TextStyle(color: kMuted)),
+                trailing: const Icon(Icons.system_update_rounded),
+              ),
+            if (Platform.isAndroid) ...[
             ListTile(
               title: Text('Lyra ${Updater.version}'),
               subtitle: ValueListenableBuilder<UpdateInfo?>(
@@ -50,6 +62,19 @@ class SettingsPage extends StatelessWidget {
               subtitle: const Text('Update-Logik ausprobieren, auch ohne neue Version', style: TextStyle(color: kMuted)),
               trailing: const Icon(Icons.science_outlined),
               onTap: () => openPage(const UpdateTestPage()),
+            ),
+            ],
+            ListTile(
+              title: const Text('Eigener Server'),
+              subtitle: Text(
+                  LyraServer.configured
+                      ? LyraServer.current!.base.host
+                      : Platform.isAndroid
+                          ? 'Optional, als Reserve für die Wiedergabe'
+                          : 'Nötig für Wiedergabe und Downloads',
+                  style: TextStyle(color: LyraServer.configured ? kMuted : accent)),
+              trailing: const Icon(Icons.dns_outlined),
+              onTap: () => showServerDialog(context),
             ),
             ListTile(
               title: const Text('Wiedergabe-Diagnose'),
@@ -173,4 +198,79 @@ class SettingsPage extends StatelessWidget {
       }),
     );
   }
+}
+
+/// Server-Link einfügen, testen und speichern.
+Future<void> showServerDialog(BuildContext context) async {
+  final ctrl = TextEditingController(text: Store.instance.serverLink ?? '');
+  String? status;
+  var busy = false;
+  await showDialog(
+    context: context,
+    builder: (c) => StatefulBuilder(
+      builder: (c, set) => AlertDialog(
+        title: const Text('Eigener Server'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text('Server-Link einfügen, den du erhalten hast:', style: TextStyle(color: kMuted)),
+            const SizedBox(height: 8),
+            TextField(
+              controller: ctrl,
+              autocorrect: false,
+              keyboardType: TextInputType.url,
+              decoration: InputDecoration(
+                hintText: 'https://lyra.beispiel.ch/?k=…',
+                suffixIcon: IconButton(
+                  tooltip: 'Einfügen',
+                  icon: const Icon(Icons.content_paste_rounded),
+                  onPressed: () async {
+                    final d = await Clipboard.getData('text/plain');
+                    if (d?.text != null) ctrl.text = d!.text!.trim();
+                  },
+                ),
+              ),
+            ),
+            if (busy) const Padding(padding: EdgeInsets.only(top: 12), child: LinearProgressIndicator()),
+            if (status != null) Padding(padding: const EdgeInsets.only(top: 12), child: Text(status!)),
+          ],
+        ),
+        actions: [
+          if (Store.instance.serverLink != null)
+            TextButton(
+              onPressed: () {
+                Store.instance.setServerLink(null);
+                Navigator.pop(c);
+              },
+              child: const Text('Entfernen'),
+            ),
+          TextButton(
+            onPressed: busy
+                ? null
+                : () async {
+                    set(() => busy = true);
+                    final r = await LyraServer.test(ctrl.text);
+                    set(() {
+                      busy = false;
+                      status = r;
+                    });
+                  },
+            child: const Text('Testen'),
+          ),
+          FilledButton(
+            onPressed: () {
+              if (LyraServer.parse(ctrl.text) == null) {
+                set(() => status = 'Kein gültiger Server-Link (Format: https://adresse/?k=SCHLÜSSEL)');
+                return;
+              }
+              Store.instance.setServerLink(ctrl.text);
+              Navigator.pop(c);
+            },
+            child: const Text('Speichern'),
+          ),
+        ],
+      ),
+    ),
+  );
 }

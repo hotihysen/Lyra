@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,6 +13,7 @@ import 'pages/home.dart';
 import 'pages/library.dart';
 import 'pages/player.dart';
 import 'pages/search.dart';
+import 'pages/settings.dart';
 import 'theme.dart';
 import 'update_ui.dart';
 import 'widgets.dart';
@@ -41,6 +44,14 @@ class ShellState extends State<Shell> {
   }
 
   Future<void> _initUpdates() async {
+    // Auf dem iPhone kommen Updates über SideStore; dort braucht Lyra den eigenen Server.
+    if (!Platform.isAndroid) {
+      if (Store.instance.serverLink == null) {
+        await Future.delayed(const Duration(seconds: 1));
+        if (mounted) await showServerDialog(context);
+      }
+      return;
+    }
     await Updater.init();
     if (!mounted) return;
     final r = Updater.restartResult.value;
@@ -66,6 +77,7 @@ class ShellState extends State<Shell> {
 
   Future<void> _showLastCrash() async {
     String? text;
+    if (!Platform.isAndroid) return;
     try {
       text = await const MethodChannel('ch.hysen.lyra/extract').invokeMethod<String>('lastCrash');
     } catch (_) {}
