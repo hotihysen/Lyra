@@ -88,6 +88,35 @@ void main() {
     expect(s.tracks.length, greaterThan(10));
   }, skip: skip);
 
+  test('Community-Playlists (Suche und Playlist-Seite)', () {
+    final pl = parseSearch(load('search_playlists_community')).where((i) => i.kind == YtKind.playlist).toList();
+    note('Community: ${pl.take(4).map((p) => '${p.title} ${p.id} «${p.subtitle}»').join('; ')}');
+    expect(pl, isNotEmpty);
+    expect(pl.every((p) => p.id.startsWith('VL')), isTrue);
+    final page = parsePlaylist(load('playlist_community'), pl.first.id);
+    note('Community-Playlist: ${page.ref.title} ${page.tracks.length} Titel, Fortsetzung: ${page.continuation != null}');
+    expect(page.tracks, isNotEmpty);
+    expect(page.tracks.every((t) => isVideoId(t.id)), isTrue);
+  }, skip: skip);
+
+  group('YouTube-Links', () {
+    test('Playlist von YouTube und YouTube Music', () {
+      expect(parseYouTubeLink('https://www.youtube.com/playlist?list=PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG')?.playlistId,
+          'PLx0sYbCqOb8TBPRdmBHs5Iftvv9TPboYG');
+      expect(parseYouTubeLink('music.youtube.com/playlist?list=RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs&si=abc')?.playlistId,
+          'RDCLAK5uy_kmPRjHDECIcuVwnKsx2Ng7fyNgFKWNJFs');
+    });
+    test('Video, Kurzlink, Shorts', () {
+      expect(parseYouTubeLink('https://www.youtube.com/watch?v=lYBUbBu4W08&list=RDlYBUbBu4W08')?.videoId, 'lYBUbBu4W08');
+      expect(parseYouTubeLink('https://youtu.be/lYBUbBu4W08?si=x')?.videoId, 'lYBUbBu4W08');
+      expect(parseYouTubeLink('https://youtube.com/shorts/lYBUbBu4W08')?.videoId, 'lYBUbBu4W08');
+    });
+    test('Kein Link', () {
+      expect(parseYouTubeLink('Kida MAMA'), isNull);
+      expect(parseYouTubeLink('https://example.com/?list=PLabcdefghij'), isNull);
+    });
+  });
+
   test('Radio (Mix ab MAMA)', () {
     final r = parseRadio(load('next_radio'));
     note('Radio: ${r.tracks.length} Titel, weiter: ${r.continuation != null}, Liste ${r.playlistId}; '
