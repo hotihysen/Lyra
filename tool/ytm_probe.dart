@@ -77,6 +77,7 @@ Future<void> main(List<String> args) async {
   const albums = 'EgWKAQIYAWoKEAkQChAFEAMQBA%3D%3D';
   const artists = 'EgWKAQIgAWoKEAkQChAFEAMQBA%3D%3D';
   const playlists = 'EgeKAQQoADgBagwQDhAKEAMQBRAJEAQ%3D';
+  const community = 'EgeKAQQoAEABagwQDhAKEAMQBRAJEAQ%3D';
 
   await save('home', _post('browse', {'browseId': 'FEmusic_home'}));
   await save('search_all_kida', _post('search', {'query': 'Kida'}));
@@ -86,6 +87,9 @@ Future<void> main(List<String> args) async {
   final al = await save('search_albums_kida', _post('search', {'query': 'Kida', 'params': Uri.decodeComponent(albums)}));
   final ar = await save('search_artists_kida', _post('search', {'query': 'Kida', 'params': Uri.decodeComponent(artists)}));
   final pl = await save('search_playlists_hits', _post('search', {'query': 'Hits 2026', 'params': Uri.decodeComponent(playlists)}));
+  final cpl = await save('search_playlists_community', _post('search', {'query': 'Kida', 'params': Uri.decodeComponent(community)}));
+  final cplId = _find(cpl, 'browseId', (v) => v.startsWith('VL'));
+  if (cplId != null) await save('playlist_community', _post('browse', {'browseId': cplId}));
   await save('suggestions', _post('music/get_search_suggestions', {'input': 'kida'}));
 
   final artistId = _find(ar, 'browseId', (v) => v.startsWith('UC'));
