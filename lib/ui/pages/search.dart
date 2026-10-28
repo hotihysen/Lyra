@@ -28,6 +28,8 @@ class _SearchPageState extends State<SearchPage> {
   Timer? _deb;
   String _q = '';
   Future<SearchResult>? _f;
+  ({String? playlistId, String? videoId})? _link;
+  bool _linkBusy = false;
   int _filter = 0;
   late Future<List<Genre>> _genres = YTMusic.genres();
 
@@ -36,10 +38,16 @@ class _SearchPageState extends State<SearchPage> {
     _deb = Timer(const Duration(milliseconds: 380), () {
       final q = v.trim();
       if (q == _q) return;
+      final link = parseYouTubeLink(q);
       setState(() {
         _q = q;
-        _f = q.isEmpty ? null : YTMusic.searchAll(q);
+        _link = link;
+        _f = q.isEmpty || link != null ? null : YTMusic.searchAll(q);
       });
+      // Reiner Playlist-Link: direkt öffnen
+      if (link != null && link.playlistId != null && link.videoId == null && !link.playlistId!.startsWith('RD')) {
+        openPage(PlaylistPage(playlistId: link.playlistId!));
+      }
     });
   }
 
@@ -92,7 +100,7 @@ class _SearchPageState extends State<SearchPage> {
                 ),
               ),
             ),
-            Expanded(child: _q.isEmpty ? _genreGrid() : _results()),
+            Expanded(child: _q.isEmpty ? _genreGrid() : (_link != null ? _linkResult() : _results())),
           ],
         ),
       ),
@@ -136,6 +144,51 @@ class _SearchPageState extends State<SearchPage> {
           ],
         );
       },
+    );
+  }
+
+  /// Link von YouTube oder YouTube Music eingefügt.
+  Widget _linkResult() {
+    final l = _link!;
+    final pl = l.playlistId;
+    final browsable = pl != null && !pl.startsWith('RD');
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(0, 8, 0, 24),
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 0, 16, 8),
+          child: Text('Link von YouTube erkannt', style: TextStyle(color: kMuted)),
+        ),
+        if (browsable)
+          ListTile(
+            leading: const Icon(Icons.queue_music_rounded, size: 32),
+            title: const Text('Playlist öffnen', style: TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text(pl, style: const TextStyle(color: kMuted)),
+            onTap: () => openPage(PlaylistPage(playlistId: pl)),
+          ),
+        if (l.videoId != null)
+          ListTile(
+            leading: _linkBusy
+                ? const SizedBox(width: 32, height: 32, child: CircularProgressIndicator(strokeWidth: 2))
+                : const Icon(Icons.play_circle_rounded, size: 32),
+            title: Text(pl != null && pl.startsWith('RD') ? 'Song mit Mix abspielen' : 'Song abspielen (mit Mix)',
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text(l.videoId!, style: const TextStyle(color: kMuted)),
+            onTap: _linkBusy
+                ? null
+                : () async {
+                    setState(() => _linkBusy = true);
+                    try {
+                      final r = await YTMusic.radio(l.videoId!, playlistId: pl != null && pl.startsWith('RD') ? pl : null);
+                      if (r.tracks.isNotEmpty) await audio.playTracks(r.tracks, start: 0);
+                    } catch (_) {
+                      if (mounted) toast(context, 'Song konnte nicht geladen werden');
+                    } finally {
+                      if (mounted) setState(() => _linkBusy = false);
+                    }
+                  },
+          ),
+      ],
     );
   }
 
@@ -186,7 +239,16 @@ class _SearchPageState extends State<SearchPage> {
                 case 4:
                   return ListView(
                     padding: const EdgeInsets.only(bottom: 24),
-                    children: [for (final p in r.playlists) _playlistTile(p)],
+                    children: [
+                      if (r.playlists.isNotEmpty) ...[
+                        const SectionTitle('Von YouTube Music'),
+                        for (final p in r.playlists) _playlistTile(p),
+                      ],
+                      if (r.community.isNotEmpty) ...[
+                        const SectionTitle('Community-Playlists'),
+                        for (final p in r.community) _playlistTile(p),
+                      ],
+                    ],
                   );
                 default:
                   final songs = r.tracks.take(5).toList();
@@ -242,6 +304,19 @@ class _SearchPageState extends State<SearchPage> {
                             ),
                         ],
                       ),
+                      Carousel(
+                        title: 'Community-Playlists',
+                        size: 140,
+                        items: [
+                          for (final p in r.community)
+                            CardItem(
+                              image: p.cover,
+                              title: p.title,
+                              subtitle: p.subtitle,
+                              onTap: () => openPage(PlaylistPage(playlistId: p.id)),
+                            ),
+                        ],
+                      ),
                     ],
                   );
               }
@@ -269,7 +344,7 @@ class _SearchPageState extends State<SearchPage> {
   Widget _playlistTile(PlaylistRef p) => ListTile(
         leading: Cover(p.cover, size: 52),
         title: Text(p.title, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(fontWeight: FontWeight.w600)),
-        subtitle: Text('Playlist · ${p.subtitle}', style: const TextStyle(color: kMuted)),
+        subtitle: Text(p.subtitle.isEmpty ? 'Playlist' : p.subtitle, maxLines: 1, overflow: TextOverflow.ellipsis, style: const TextStyle(color: kMuted)),
         onTap: () => openPage(PlaylistPage(playlistId: p.id)),
       );
 }

@@ -96,8 +96,29 @@ class SearchResult {
   final List<Artist> artists;
   final List<Album> albums;
   final List<PlaylistRef> playlists;
-  const SearchResult(this.tracks, this.artists, this.albums, this.playlists);
-  bool get isEmpty => tracks.isEmpty && artists.isEmpty && albums.isEmpty && playlists.isEmpty;
+  /// Von Nutzern erstellte Playlists (YouTube Music «Community-Playlists» und YouTube).
+  final List<PlaylistRef> community;
+  const SearchResult(this.tracks, this.artists, this.albums, this.playlists, [this.community = const []]);
+  bool get isEmpty => tracks.isEmpty && artists.isEmpty && albums.isEmpty && playlists.isEmpty && community.isEmpty;
+}
+
+/// Erkennt Links von YouTube und YouTube Music (Playlist, Video, Kurzlink).
+({String? playlistId, String? videoId})? parseYouTubeLink(String input) {
+  var s = input.trim();
+  if (!s.contains('youtu')) return null;
+  if (!s.contains('://')) s = 'https://$s';
+  final u = Uri.tryParse(s);
+  if (u == null || !u.host.contains('youtu')) return null;
+  final list = u.queryParameters['list'];
+  String? vid = u.queryParameters['v'];
+  if (vid == null && u.host.contains('youtu.be') && u.pathSegments.isNotEmpty) vid = u.pathSegments.first;
+  if (vid == null && u.pathSegments.length >= 2 && (u.pathSegments.first == 'shorts' || u.pathSegments.first == 'live')) {
+    vid = u.pathSegments[1];
+  }
+  if (vid != null && !RegExp(r'^[A-Za-z0-9_-]{11}$').hasMatch(vid)) vid = null;
+  final pl = (list != null && RegExp(r'^[A-Za-z0-9_-]{10,}$').hasMatch(list)) ? list : null;
+  if (pl == null && vid == null) return null;
+  return (playlistId: pl, videoId: vid);
 }
 
 class ArtistData {
@@ -673,7 +694,10 @@ class YTMusic {
   static const filterVideos = 'EgWKAQIQAWoKEAkQChAFEAMQBA==';
   static const filterAlbums = 'EgWKAQIYAWoKEAkQChAFEAMQBA==';
   static const filterArtists = 'EgWKAQIgAWoKEAkQChAFEAMQBA==';
+  /// Playlists von YouTube Music selbst («Empfohlene Playlists»).
   static const filterPlaylists = 'EgeKAQQoADgBagwQDhAKEAMQBRAJEAQ=';
+  /// Playlists von Nutzern («Community-Playlists», auch normale YouTube-Playlists).
+  static const filterCommunityPlaylists = 'EgeKAQQoAEABagwQDhAKEAMQBRAJEAQ=';
 
   static Future<Map> _post(String endpoint, Map<String, dynamic> body) async {
     final ctx = {
@@ -733,12 +757,21 @@ class YTMusic {
       _safe(search(q, filterArtists)),
       _safe(search(q, filterAlbums)),
       _safe(search(q, filterPlaylists)),
+      _safe(search(q, filterCommunityPlaylists)),
     ]);
+    final featured = r[3].where((i) => i.kind == YtKind.playlist).map((i) => i.toPlaylist()).toList();
+    final seen = featured.map((p) => p.id).toSet();
+    final community = r[4]
+        .where((i) => i.kind == YtKind.playlist)
+        .map((i) => i.toPlaylist())
+        .where((p) => seen.add(p.id))
+        .toList();
     return SearchResult(
       r[0].where((i) => i.playable).map((i) => i.toTrack()).toList(),
       r[1].where((i) => i.kind == YtKind.artist).map((i) => i.toArtist()).toList(),
       r[2].where((i) => i.kind == YtKind.album).map((i) => i.toAlbum()).toList(),
-      r[3].where((i) => i.kind == YtKind.playlist).map((i) => i.toPlaylist()).toList(),
+      featured,
+      community,
     );
   }
 
@@ -816,7 +849,7 @@ class YTMusic {
 
   static Future<(Album, List<Track>)> album(String id) async => parseAlbum(await browse(id), id);
 
-  static Future<(PlaylistRef, List<Track>, String)> playlist(String id, {int maxPages = 5}) async {
+  static Future<(PlaylistRef, List<Track>, String)> playlist(String id, {int maxPages = 10}) async {
     final browseId = id.startsWith('VL') ? id : 'VL$id';
     final page = parsePlaylist(await browse(browseId), browseId);
     final tracks = [...page.tracks];
