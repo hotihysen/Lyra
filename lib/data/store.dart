@@ -199,6 +199,39 @@ class Store extends ChangeNotifier {
     _put('recent', recent);
   }
 
+  // Wiedergabesitzung (siehe audio/session.dart). Fehler beim Lesen dürfen den Start nicht verhindern.
+  // Getrennt gespeichert: die Warteschlange nur bei Änderungen, der kleine Zeiger
+  // (Titel, Position, Einstellungen) häufig. Beim Lesen werden beide zusammengeführt.
+  dynamic loadSessionRaw() {
+    try {
+      final qp = _box.get('session_q');
+      final pp = _box.get('session_p');
+      if (qp is! Map || pp is! Map) return null;
+      return {...qp, ...pp};
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> saveSessionQueue(Map<String, dynamic> j) => _box.put('session_q', j);
+  Future<void> saveSessionPointer(Map<String, dynamic> j) => _box.put('session_p', j);
+
+  List<String> loadPlayLog() {
+    try {
+      return [for (final l in (_box.get('playlog') as List?) ?? const []) '$l'];
+    } catch (_) {
+      return [];
+    }
+  }
+
+  void savePlayLog(List<String> lines) => _box.put('playlog', lines);
+
+  Future<void> flush() async {
+    try {
+      await _box.flush();
+    } catch (_) {}
+  }
+
   void saveMix(List<Track> tracks, String day) {
     mix = tracks;
     mixDay = day;
@@ -260,6 +293,39 @@ class Store extends ChangeNotifier {
   // Downloads
   String _safe(String id) => id.replaceAll(RegExp(r'[^A-Za-z0-9_-]'), '_');
   File fileFor(Track t) => File('${downloadsDir.path}/${_safe(t.id)}.${t.isBook ? 'mp3' : 'm4a'}');
+  File _webmFor(Track t) => File('${downloadsDir.path}/${_safe(t.id)}.webm');
+
+  /// Die tatsächlich vorhandene Datei eines Downloads (M4A/MP3 oder WebM).
+  File? audioFile(Track t) {
+    final a = fileFor(t);
+    if (a.existsSync()) return a;
+    final w = _webmFor(t);
+    if (!t.isBook && w.existsSync()) return w;
+    return null;
+  }
+
+  /// Prüft den Inhalt einer frisch geladenen Datei und gibt ihr die passende Endung.
+  /// Liefert false, wenn die Datei keine bekannte Audiodatei ist.
+  bool fixDownloadFormat(Track t) {
+    final f = fileFor(t);
+    if (!f.existsSync() || t.isBook) return f.existsSync();
+    try {
+      final raf = f.openSync();
+      final head = raf.readSync(12);
+      raf.closeSync();
+      if (head.length < 12) return false;
+      final isMp4 = head[4] == 0x66 && head[5] == 0x74 && head[6] == 0x79 && head[7] == 0x70; // 'ftyp'
+      final isWebm = head[0] == 0x1A && head[1] == 0x45 && head[2] == 0xDF && head[3] == 0xA3;
+      if (isWebm) {
+        f.renameSync(_webmFor(t).path);
+        return true;
+      }
+      return isMp4;
+    } catch (_) {
+      return false;
+    }
+  }
+
   bool isDownloaded(Track t) => downloads.containsKey(t.id);
 
   void addDownload(Track t) {
@@ -269,17 +335,21 @@ class Store extends ChangeNotifier {
 
   void removeDownload(Track t) {
     downloads.remove(t.id);
-    try {
-      fileFor(t).deleteSync();
-    } catch (_) {}
+    for (final f in [fileFor(t), _webmFor(t)]) {
+      try {
+        if (f.existsSync()) f.deleteSync();
+      } catch (_) {}
+    }
     _put('downloads', downloads.values);
   }
 
   void clearDownloads() {
     for (final t in downloads.values.toList()) {
-      try {
-        fileFor(t).deleteSync();
-      } catch (_) {}
+      for (final f in [fileFor(t), _webmFor(t)]) {
+        try {
+          if (f.existsSync()) f.deleteSync();
+        } catch (_) {}
+      }
     }
     downloads.clear();
     _put('downloads', downloads.values);
@@ -289,7 +359,7 @@ class Store extends ChangeNotifier {
     var sum = 0;
     for (final t in downloads.values) {
       try {
-        sum += fileFor(t).lengthSync();
+        sum += audioFile(t)?.lengthSync() ?? 0;
       } catch (_) {}
     }
     return sum;

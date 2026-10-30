@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../api/server.dart';
+import '../../main.dart';
 
 import '../../data/store.dart';
 import '../../data/updater.dart';
@@ -90,6 +91,12 @@ class SettingsPage extends StatelessWidget {
                   style: TextStyle(color: LyraServer.configured ? kMuted : accent)),
               trailing: const Icon(Icons.dns_outlined),
               onTap: () => showServerDialog(context),
+            ),
+            ListTile(
+              title: const Text('Wiedergabe-Protokoll'),
+              subtitle: const Text('Was der Player zuletzt getan hat, zum Kopieren', style: TextStyle(color: kMuted)),
+              trailing: const Icon(Icons.receipt_long_outlined),
+              onTap: () => openPage(const PlayLogPage()),
             ),
             ListTile(
               title: const Text('Wiedergabe-Diagnose'),
@@ -288,4 +295,49 @@ Future<void> showServerDialog(BuildContext context) async {
       ),
     ),
   );
+}
+
+/// Wiedergabeprotokoll (begrenzt, ohne Adressen und Schlüssel) zum Kopieren.
+class PlayLogPage extends StatefulWidget {
+  const PlayLogPage({super.key});
+  @override
+  State<PlayLogPage> createState() => _PlayLogPageState();
+}
+
+class _PlayLogPageState extends State<PlayLogPage> {
+  @override
+  Widget build(BuildContext context) {
+    final lines = audio.log.lines.reversed.toList();
+    return Scaffold(
+      backgroundColor: kBg,
+      appBar: AppBar(
+        title: const Text('Wiedergabe-Protokoll', style: TextStyle(fontWeight: FontWeight.w800)),
+        actions: [
+          IconButton(
+            tooltip: 'Kopieren',
+            icon: const Icon(Icons.copy_rounded),
+            onPressed: () {
+              Clipboard.setData(ClipboardData(text: 'Lyra ${Updater.version}\n${audio.log.text}'));
+              toast(context, 'Protokoll kopiert');
+            },
+          ),
+          IconButton(
+            tooltip: 'Leeren',
+            icon: const Icon(Icons.delete_outline_rounded),
+            onPressed: () => setState(audio.log.clear),
+          ),
+        ],
+      ),
+      body: lines.isEmpty
+          ? const Center(child: Text('Noch keine Einträge', style: TextStyle(color: kMuted)))
+          : ListView.builder(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 24),
+              itemCount: lines.length,
+              itemBuilder: (c, i) => Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: SelectableText(lines[i], style: const TextStyle(fontFamily: 'monospace', fontSize: 11.5)),
+              ),
+            ),
+    );
+  }
 }
