@@ -33,6 +33,8 @@ jobs:
         run: |
           flutter create --platforms=android --org ch.hysen --project-name lyra .
           python3 ci/patch_android.py
+          # Von flutter create erzeugtes Beispiel passt nicht zu Lyra
+          rm -f test/widget_test.dart
 
       - run: flutter pub get
 
