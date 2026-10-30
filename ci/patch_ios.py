@@ -21,6 +21,8 @@ p["UIBackgroundModes"] = ["audio"]
 # Eigener Server darf auch ohne HTTPS im Heimnetz erreichbar sein
 p["NSAppTransportSecurity"] = {"NSAllowsArbitraryLoads": True}
 p["ITSAppUsesNonExemptEncryption"] = False
+# Lyra darf SideStore öffnen (Hinweis auf Updates)
+p["LSApplicationQueriesSchemes"] = ["sidestore", "altstore"]
 p["UIStatusBarStyle"] = "UIStatusBarStyleLightContent"
 p["UIViewControllerBasedStatusBarAppearance"] = False
 with plist_path.open("wb") as f:

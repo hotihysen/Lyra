@@ -157,14 +157,20 @@ class Updater {
     final tag = '${j['tag_name'] ?? ''}';
     final n = buildFromTag(tag);
     if (n == null) throw Exception('Unbekanntes Release-Format «$tag»');
+    // Android lädt die APK; das iPhone braucht die IPA (Installation über SideStore).
+    // Erst wenn die passende Datei im Release liegt, gilt die Version als verfügbar.
+    final ext = Platform.isIOS ? '.ipa' : '.apk';
     Map? apk;
     for (final a in (j['assets'] as List?) ?? const []) {
-      if ('${(a as Map)['name']}'.endsWith('.apk')) {
+      if ('${(a as Map)['name']}'.endsWith(ext)) {
         apk = a;
         break;
       }
     }
-    if (apk == null) throw Exception('Im Release $tag liegt keine APK');
+    if (apk == null) {
+      if (Platform.isIOS) throw Exception('Die iPhone-Version von $tag ist noch nicht fertig');
+      throw Exception('Im Release $tag liegt keine APK');
+    }
     return UpdateInfo(
       build: n,
       tag: tag,

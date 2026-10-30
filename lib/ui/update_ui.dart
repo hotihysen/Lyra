@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
 
 import '../api/youtube.dart';
@@ -12,6 +15,10 @@ bool _askedThisStart = false;
 Future<void> showUpdateDialogOnce(BuildContext context, UpdateInfo info) async {
   if (_askedThisStart || Updater.busy) return;
   _askedThisStart = true;
+  if (Platform.isIOS) {
+    await _showSideStoreHint(context, info);
+    return;
+  }
   final ok = await showDialog<bool>(
     context: context,
     builder: (c) => AlertDialog(
@@ -26,6 +33,31 @@ Future<void> showUpdateDialogOnce(BuildContext context, UpdateInfo info) async {
     ),
   );
   if (ok == true && context.mounted) await startUpdate(context, info);
+}
+
+/// iPhone: Lyra kann sich nicht selbst installieren; das Update kommt über SideStore.
+Future<void> _showSideStoreHint(BuildContext context, UpdateInfo info) async {
+  final ok = await showDialog<bool>(
+    context: context,
+    builder: (c) => AlertDialog(
+      title: const Text('Update verfügbar'),
+      content: Text('Lyra ${info.version} ist bereit (installiert: ${Updater.version}).\n\n'
+          'So installierst du es:\n'
+          '1. LocalDevVPN verbinden\n'
+          '2. In SideStore unter «My Apps» bei Lyra auf «Update» tippen\n\n'
+          'Bibliothek, Einstellungen und Downloads bleiben erhalten.'),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('Später')),
+        FilledButton(onPressed: () => Navigator.pop(c, true), child: const Text('SideStore öffnen')),
+      ],
+    ),
+  );
+  if (ok != true) return;
+  var opened = false;
+  try {
+    opened = await launchUrl(Uri.parse('sidestore://'), mode: LaunchMode.externalApplication);
+  } catch (_) {}
+  if (!opened && context.mounted) toast(context, 'SideStore bitte selbst öffnen und unter «My Apps» aktualisieren');
 }
 
 /// Startet den Vorgang (falls keiner läuft) und zeigt den Fortschritt.
