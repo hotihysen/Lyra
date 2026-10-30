@@ -31,13 +31,14 @@ class Shell extends StatefulWidget {
   State<Shell> createState() => ShellState();
 }
 
-class ShellState extends State<Shell> {
+class ShellState extends State<Shell> with WidgetsBindingObserver {
   int tab = 0;
   final _keys = List.generate(4, (_) => GlobalKey<NavigatorState>());
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     audio.error.addListener(_showError);
     Future.delayed(const Duration(milliseconds: 800), _showLastCrash);
     _initUpdates();
@@ -79,6 +80,7 @@ class ShellState extends State<Shell> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     audio.error.removeListener(_showError);
     super.dispose();
   }
@@ -114,6 +116,13 @@ class ShellState extends State<Shell> {
         ],
       ),
     );
+  }
+
+  /// App geht in den Hintergrund oder wird beendet: Sitzung sofort speichern.
+  /// (Zusätzlich speichert der Player laufend; Android beendet Prozesse oft ohne Rückmeldung.)
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) audio.saveSession();
   }
 
   void _showError() {

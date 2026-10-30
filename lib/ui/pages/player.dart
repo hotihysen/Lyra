@@ -3,6 +3,8 @@ import 'dart:math' as math;
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/material.dart';
 
+import '../../audio/control.dart';
+
 import '../../api/lyrics.dart';
 import '../../audio/handler.dart';
 import '../../data/models.dart';
@@ -182,6 +184,7 @@ class _PlayerBodyState extends State<_PlayerBody> {
                         const SizedBox(height: 10),
                         const _ProgressBar(),
                         _Controls(track: t),
+                        const PlaybackStatus(),
                         const SizedBox(height: 4),
                         _BottomRow(track: t),
                         const SizedBox(height: 12),
@@ -245,6 +248,47 @@ class _ProgressBarState extends State<_ProgressBar> {
               ),
             ),
           ],
+        );
+      },
+    );
+  }
+}
+
+/// Zeigt, was der Player gerade tut (statt eines endlosen Kreisels), und bei einem Fehler
+/// einen Knopf zum erneuten Versuch.
+class PlaybackStatus extends StatelessWidget {
+  const PlaybackStatus({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<String?>(
+      valueListenable: audio.status,
+      builder: (context, text, _) {
+        if (text == null) return const SizedBox(height: 8);
+        final failed = audio.phase.value == PlayPhase.failed || audio.phase.value == PlayPhase.ended;
+        return Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              if (!failed)
+                const SizedBox(
+                  width: 12,
+                  height: 12,
+                  child: CircularProgressIndicator(strokeWidth: 1.5, color: Colors.white70),
+                )
+              else
+                const Icon(Icons.error_outline_rounded, size: 16, color: Colors.white70),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(text,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(color: Colors.white70, fontSize: 13)),
+              ),
+              if (failed && audio.phase.value == PlayPhase.failed)
+                TextButton(onPressed: audio.retry, child: const Text('Erneut versuchen')),
+            ],
+          ),
         );
       },
     );

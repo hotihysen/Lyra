@@ -37,6 +37,13 @@ class Downloads {
       } else {
         await YT.download(t, f, (p) => _set(t.id, p));
       }
+      // Erst nach vollständigem, geprüftem Abschluss als verfügbar markieren
+      if (!s.fixDownloadFormat(t)) {
+        try {
+          f.deleteSync();
+        } catch (_) {}
+        throw Exception('Datei ist keine gültige Audiodatei');
+      }
       s.addDownload(t);
       return true;
     } catch (_) {
@@ -75,6 +82,7 @@ class Downloads {
       } finally {
         await sink.close();
       }
+      if (total > 0 && got < total) throw Exception('Download unvollständig');
       await tmp.rename(f.path);
     } finally {
       client.close();

@@ -36,6 +36,28 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Code-Analyse (Fehler brechen ab)
+        run: |
+          set -o pipefail
+          if ! flutter analyze --no-fatal-infos --no-fatal-warnings lib test 2>&1 | tee analyze.log; then
+            msg=$(grep -E "error •" analyze.log | head -30 | sed 's/%/%25/g' | cut -c1-300 | awk 'BEGIN{ORS="%0A"}{print}')
+            echo "::error title=Analyse fehlgeschlagen::$msg"
+            exit 1
+          fi
+          w=$(grep -cE "warning •" analyze.log || true)
+          echo "::notice title=Analyse::keine Fehler, $w Warnungen"
+
+      - name: Tests der Wiedergabelogik
+        run: |
+          set -o pipefail
+          if flutter test test/playback_logic_test.dart --reporter expanded 2>&1 | tee pl.log; then
+            echo "::notice title=Wiedergabelogik::$(grep -E 'All tests passed|\+[0-9]+' pl.log | tail -1 | sed 's/%/%25/g')"
+          else
+            msg=$(grep -E "\[E\]|Expected|Actual|Error|FAILED|Some tests failed" pl.log | head -30 | sed 's/%/%25/g' | cut -c1-300 | awk 'BEGIN{ORS="%0A"}{print}')
+            echo "::error title=Wiedergabelogik fehlgeschlagen::$msg"
+            exit 1
+          fi
+
       - name: Tests der Update-Logik
         run: |
           set -o pipefail

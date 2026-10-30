@@ -52,10 +52,26 @@ class _Progressive {
 
   _Progressive(this.file, this.total);
 
+  bool cancelled = false;
+  http.Client? _client;
+  DateTime lastUse = DateTime.now();
+
+  /// Bricht den Abruf ab (nicht mehr benötigt). Liest der Player noch, bekommt er einen Fehler.
+  void cancel() {
+    if (done || cancelled) return;
+    cancelled = true;
+    error ??= Exception('Abruf abgebrochen');
+    try {
+      _client?.close();
+    } catch (_) {}
+    _changes.add(null);
+  }
+
   Future<void> run(Stream<List<int>> source) async {
     final raf = await file.open(mode: FileMode.write);
     try {
-      await for (final chunk in source) {
+      await for (final chunk in source.timeout(const Duration(seconds: 20))) {
+        if (cancelled) throw Exception('Abruf abgebrochen');
         await raf.writeFrom(chunk);
         written += chunk.length;
         _changes.add(null);
@@ -75,7 +91,9 @@ class _Progressive {
     var failures = 0;
     try {
       while (true) {
+        if (cancelled) return;
         final client = http.Client();
+        _client = client;
         try {
           final req = http.Request('GET', url)..headers.addAll({...headers, 'Range': 'bytes=$written-'});
           final res = await client.send(req).timeout(sendTimeout);
@@ -85,12 +103,24 @@ class _Progressive {
             written = 0;
             await raf.setPosition(0);
           }
+          if (res.statusCode == 206) {
+            // Teilantwort muss genau an der gewünschten Stelle beginnen
+            final cr = res.headers['content-range'] ?? '';
+            final m = RegExp(r'bytes\s+(\d+)-').firstMatch(cr);
+            final start = m == null ? -1 : int.parse(m.group(1)!);
+            if (start != written) {
+              written = 0;
+              await raf.setPosition(0);
+              if (start != 0) throw Exception('Teilantwort ab falscher Stelle');
+            }
+          }
           if (total <= 0) {
             final cr = res.headers['content-range'];
             final m = cr == null ? null : RegExp(r'/(\d+)').firstMatch(cr);
             total = m != null ? int.parse(m.group(1)!) : (res.contentLength ?? 0) + written;
           }
           await for (final chunk in res.stream.timeout(const Duration(seconds: 20))) {
+            if (cancelled) return;
             await raf.writeFrom(chunk);
             written += chunk.length;
             failures = 0;
@@ -100,8 +130,9 @@ class _Progressive {
           done = true;
           return;
         } catch (e) {
+          if (cancelled) return;
           failures++;
-          if (failures > 6) {
+          if (failures > 4) {
             error = e;
             return;
           }
@@ -176,6 +207,13 @@ class _ProgressiveSource extends StreamAudioSource {
       await raf.close();
     }
   }
+}
+
+class _Resolved {
+  final _Progressive p;
+  final String mime;
+  final String way;
+  const _Resolved(this.p, this.mime, this.way);
 }
 
 /// Liefert das Audio zur YouTube-Music-Video-ID eines Titels.
@@ -259,11 +297,14 @@ class YT {
           final r = (hit != null && DateTime.now().difference(hit.$1).inHours < 3) ? hit.$2 : await _manifest(vid, o);
           _manifests[key] = (DateTime.now(), r);
           final total = r.info.size.totalBytes;
-          final dir = await getTemporaryDirectory();
-          final f = File('${dir.path}/stream_${t.id}_${r.client}.${r.ext}');
-          final p = _Progressive(f, total);
+          final p = _Progressive(await _tempFile('stream', t, r.ext), total);
           unawaited(p.run(_yt.videos.streamsClient.get(r.info)));
-          await p.waitForStart();
+          try {
+            await p.waitForStart();
+          } catch (_) {
+            p.cancel();
+            rethrow;
+          }
           Store.instance.setYt(t.id, vid);
           if (Store.instance.ytClient != o.name) Store.instance.setYtClient(o.name);
           return (r, p);
@@ -277,107 +318,190 @@ class YT {
     throw Exception('Kein Abrufweg hat Audio geliefert');
   }
 
-  /// Lädt [url] in eine Datei, während der Player schon daraus liest.
-  static Future<AudioSource> _stream(Track t, String prefix, Uri url, Map<String, String> headers, String mime,
-      {int size = 0, Duration wait = const Duration(seconds: 20)}) async {
+  /// Zuletzt gewählter Abrufweg (für das Wiedergabeprotokoll, ohne Adressen).
+  static String lastWay = '';
+
+  /// Titel, deren Dateien gerade gespielt oder vorbereitet werden; werden nicht gelöscht.
+  static final inUse = <String>{};
+
+  /// Laufende Abrufe je Titel: gleichzeitige Anfragen (Vorladen und Laden) teilen sich einen.
+  static final _inflight = <String, Future<_Resolved>>{};
+  static int _fileSeq = 0;
+
+  /// Vergisst alles Zwischengespeicherte zu einem Titel (für einen Versuch mit frischer Quelle).
+  static void forget(Track t) {
+    final p = _cache.remove(t.id);
+    p?.cancel();
+    _inflight.remove(t.id);
+    _manifests.removeWhere((k, _) => k.startsWith('${Store.instance.ytIds[t.id] ?? t.id}|'));
+  }
+
+  static Future<File> _tempFile(String prefix, Track t, String ext) async {
     final dir = await getTemporaryDirectory();
+    return File('${dir.path}/${prefix}_${t.id}_${DateTime.now().millisecondsSinceEpoch}_${_fileSeq++}.$ext');
+  }
+
+  /// Startet einen Abruf über HTTP in eine eigene Datei und wartet auf die ersten Bytes.
+  static Future<_Resolved> _http(Track t, String prefix, String way, Uri url, Map<String, String> headers, String mime,
+      {int size = 0, Duration wait = const Duration(seconds: 20)}) async {
     final ext = mime == 'audio/webm' ? 'webm' : 'm4a';
-    final p = _Progressive(File('${dir.path}/${prefix}_${t.id}.$ext'), size);
+    final p = _Progressive(await _tempFile(prefix, t, ext), size);
     unawaited(p.runHttp(url, headers, sendTimeout: wait));
-    await p.waitForStart(wait);
-    _cache[t.id] = p;
-    _trimCache();
+    try {
+      await p.waitForStart(wait);
+    } catch (e) {
+      p.cancel();
+      rethrow;
+    }
     if (p.total <= 0) {
-      // Grösse unbekannt: warten, bis die Datei vollständig ist.
+      // Grösse unbekannt: vollständig laden, dann als Datei abspielen
       while (!p.done && p.error == null) {
         await p.waitForChange();
       }
       if (p.error != null) throw p.error!;
-      return AudioSource.file(p.file.path);
     }
-    return _ProgressiveSource(p, mime);
+    return _Resolved(p, mime, way);
   }
 
   /// Der eigene Server lädt beim ersten Abruf den ganzen Song, deshalb länger warten.
-  static const _serverWait = Duration(seconds: 90);
+  static const _serverWait = Duration(seconds: 60);
 
   /// Audioquelle für den Player: wird gestreamt und gleichzeitig zwischengespeichert.
   /// Reihenfolge auf Android: Extraktoren, eigener Server, Invidious, direkt.
   /// Auf dem iPhone: eigener Server, Invidious (nur AAC), direkt.
-  static Future<AudioSource> audioSource(Track t) async {
+  /// [budget] begrenzt die gesamte Suche; danach wird kein weiterer Weg mehr begonnen.
+  static Future<AudioSource> audioSource(Track t, {Duration budget = const Duration(seconds: 60)}) async {
     final old = _cache[t.id];
-    if (old != null && old.done && old.file.existsSync()) {
+    if (old != null && old.done && old.error == null && old.file.existsSync()) {
+      old.lastUse = DateTime.now();
+      lastWay = 'Zwischenspeicher';
       return AudioSource.file(old.file.path);
     }
+    final running = _inflight[t.id];
+    final f = running ?? _resolve(t, DateTime.now().add(budget));
+    if (running == null) {
+      _inflight[t.id] = f;
+      unawaited(f.then((_) {}, onError: (_) {}).whenComplete(() {
+        if (identical(_inflight[t.id], f)) _inflight.remove(t.id);
+      }));
+    }
+    final r = await f;
+    lastWay = r.way;
+    final p = r.p;
+    p.lastUse = DateTime.now();
+    if (p.total <= 0 || p.done) return AudioSource.file(p.file.path);
+    // Jeder Player bekommt seine eigene Quelle, auch wenn die Datei geteilt wird
+    return _ProgressiveSource(p, r.mime);
+  }
+
+  static Future<_Resolved> _resolve(Track t, DateTime deadline) async {
+    Duration left() => deadline.difference(DateTime.now());
+    bool timeUp() => left() <= const Duration(seconds: 2);
+    Duration cap(Duration d) => left() < d ? left() : d;
+
     final errors = <String>[];
-    final ids = await candidates(t);
+    final ids = await candidates(t).timeout(cap(const Duration(seconds: 15)));
     if (ids.isEmpty) throw Exception('Kein passendes Video gefunden');
     final vid = ids.first;
 
-    Future<AudioSource?> viaServer() async {
-      if (!LyraServer.configured) return null;
-      try {
-        final a = await _stream(t, 'srv', LyraServer.audioUrl(vid), LyraServer.headers, 'audio/mp4', wait: _serverWait);
-        Store.instance.setYt(t.id, vid);
-        return a;
-      } catch (e) {
-        errors.add('Eigener Server: ${_short(e)}');
-        return null;
-      }
+    Future<_Resolved> done(_Resolved r) async {
+      Store.instance.setYt(t.id, vid);
+      final prev = _cache[t.id];
+      if (prev != null && !identical(prev, r.p) && !inUse.contains(t.id)) prev.cancel();
+      _cache[t.id] = r.p;
+      _trimCache();
+      return r;
     }
 
-    if (Platform.isAndroid) {
+    if (Platform.isAndroid && !timeUp()) {
       // 1. Wie SimpMusic: native Extraktoren (PipePipe, BravePipe)
       try {
-        final n = await native(vid);
-        Store.instance.setYt(t.id, vid);
-        return await _stream(t, 'yt', n.url, {'User-Agent': n.ua}, n.mime);
+        final n = await native(vid).timeout(cap(const Duration(seconds: 30)));
+        return await done(await _http(t, 'yt', 'Extraktor (${n.source})', n.url, {'User-Agent': n.ua}, n.mime,
+            wait: cap(const Duration(seconds: 20))));
       } catch (e) {
         errors.add('Extraktor: ${_short(e)}');
       }
     }
-    final srv = await viaServer();
-    if (srv != null) return srv;
-    // Invidious-Server
-    try {
-      final a = await Invidious.audio(vid, errors: errors);
-      if (!Platform.isAndroid && a.mime == 'audio/webm') throw Exception('nur WebM, auf dem iPhone nicht abspielbar');
-      Store.instance.setYt(t.id, vid);
-      return await _stream(t, 'inv', a.url, const {'User-Agent': 'Mozilla/5.0 (Linux; Android 14) Lyra/1.0'}, a.mime,
-          size: a.size);
-    } catch (e) {
-      errors.add('Invidious: ${_short(e)}');
-    }
-    // Reserve: direkt bei YouTube
-    final (r, p) = await _open(t, ids: [vid], earlier: errors);
-    _cache[t.id] = p;
-    _trimCache();
-    if (p.total <= 0) {
-      while (!p.done && p.error == null) {
-        await p.waitForChange();
+    if (LyraServer.configured && !timeUp()) {
+      try {
+        return await done(await _http(t, 'srv', 'Eigener Server', LyraServer.audioUrl(vid), LyraServer.headers, 'audio/mp4',
+            wait: cap(_serverWait)));
+      } catch (e) {
+        errors.add('Eigener Server: ${_short(e)}');
       }
-      if (p.error != null) throw p.error!;
-      return AudioSource.file(p.file.path);
     }
-    return _ProgressiveSource(p, r.mime);
+    if (!timeUp()) {
+      try {
+        final a = await Invidious.audio(vid, errors: errors).timeout(cap(const Duration(seconds: 25)));
+        if (!Platform.isAndroid && a.mime == 'audio/webm') throw Exception('nur WebM, auf dem iPhone nicht abspielbar');
+        return await done(await _http(t, 'inv', 'Invidious', a.url, const {'User-Agent': 'Mozilla/5.0 (Linux; Android 14) Lyra/1.0'},
+            a.mime, size: a.size, wait: cap(const Duration(seconds: 20))));
+      } catch (e) {
+        errors.add('Invidious: ${_short(e)}');
+      }
+    }
+    if (!timeUp()) {
+      try {
+        final (r, p) = await _open(t, ids: [vid], earlier: errors).timeout(cap(const Duration(seconds: 40)));
+        if (p.total <= 0) {
+          while (!p.done && p.error == null) {
+            await p.waitForChange();
+          }
+          if (p.error != null) throw p.error!;
+        }
+        return await done(_Resolved(p, r.mime, 'Direkt (${r.client})'));
+      } catch (e) {
+        errors.add('Direkt: ${_short(e)}');
+      }
+    }
+    lastError = errors.join('\n');
+    throw Exception(timeUp() ? 'Zeitlimit für die Quellensuche erreicht' : 'Kein Abrufweg hat Audio geliefert');
   }
 
+  /// Hält höchstens 6 Dateien; nie gelöscht wird, was gerade gespielt oder vorbereitet wird
+  /// oder noch geladen wird. Ältere temporäre Dateien werden beim Start aufgeräumt.
   static void _trimCache() {
     if (_cache.length <= 6) return;
-    final keys = _cache.keys.toList();
-    for (final k in keys.take(_cache.length - 6)) {
-      final p = _cache.remove(k);
-      if (p != null && (p.done || p.error != null)) {
-        try {
-          p.file.deleteSync();
-        } catch (_) {}
-      }
+    final entries = _cache.entries.where((e) => !inUse.contains(e.key)).toList()
+      ..sort((a, b) => a.value.lastUse.compareTo(b.value.lastUse));
+    for (final e in entries.take(_cache.length - 6)) {
+      final p = e.value;
+      if (!(p.done || p.error != null)) continue;
+      _cache.remove(e.key);
+      try {
+        p.file.deleteSync();
+      } catch (_) {}
     }
+  }
+
+  /// Entfernt temporäre Audiodateien, die älter als ein Tag sind oder zusammen 400 MB übersteigen.
+  static Future<void> cleanTemp() async {
+    try {
+      final dir = await getTemporaryDirectory();
+      final files = dir
+          .listSync()
+          .whereType<File>()
+          .where((f) => RegExp(r'^(yt|srv|inv|stream)_.*\.(m4a|webm)$').hasMatch(f.uri.pathSegments.last))
+          .toList()
+        ..sort((a, b) => b.statSync().modified.compareTo(a.statSync().modified));
+      var total = 0;
+      final now = DateTime.now();
+      for (final f in files) {
+        final st = f.statSync();
+        total += st.size;
+        if (now.difference(st.modified) > const Duration(days: 1) || total > 400 * 1024 * 1024) {
+          try {
+            f.deleteSync();
+          } catch (_) {}
+        }
+      }
+    } catch (_) {}
   }
 
   static Future<void> download(Track t, File f, void Function(double) onProgress) async {
     final cached = _cache[t.id];
-    if (cached != null && cached.done && cached.file.existsSync() && !cached.file.path.endsWith('.webm')) {
+    if (cached != null && cached.done && cached.error == null && cached.file.existsSync()) {
       await cached.file.copy(f.path);
       onProgress(1);
       return;
@@ -392,10 +516,14 @@ class YT {
         if (p.total > 0) onProgress(p.written / p.total);
         await Future.any([run, p.waitForChange()]);
       }
-      if (p.error == null && p.written > 0) {
+      // Nur eine vollständig geladene Datei gilt als Download
+      if (p.done && p.error == null && p.written > 0) {
         await p.file.rename(f.path);
         return true;
       }
+      try {
+        p.file.deleteSync();
+      } catch (_) {}
       return false;
     }
 
@@ -438,7 +566,7 @@ class YT {
       final sink = tmp.openWrite();
       var got = 0;
       try {
-        await for (final c in res.stream) {
+        await for (final c in res.stream.timeout(const Duration(seconds: 20))) {
           got += c.length;
           sink.add(c);
           if (total > 0) onP(got / total);
@@ -447,6 +575,7 @@ class YT {
         await sink.close();
       }
       if (got == 0) throw Exception('leere Datei');
+      if (total > 0 && got < total) throw Exception('Download unvollständig');
       await tmp.rename(f.path);
     } finally {
       client.close();
