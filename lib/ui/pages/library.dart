@@ -37,6 +37,14 @@ class _LibraryPageState extends State<LibraryPage> {
                 pinned: true,
                 onTap: () => openPage(const LikedPage()),
               ),
+            if (show(0))
+              _LibTile(
+                art: const GradientArt(icon: Icons.auto_awesome_rounded),
+                title: 'Mein Mix',
+                subtitle: 'Aus deinen Lieblingssongs · täglich neu',
+                pinned: true,
+                onTap: () => openPage(const MixPage()),
+              ),
             if (show(4))
               _LibTile(
                 art: const GradientArt(icon: Icons.download_rounded),
