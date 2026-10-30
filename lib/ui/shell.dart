@@ -50,6 +50,14 @@ class ShellState extends State<Shell> {
         await Future.delayed(const Duration(seconds: 1));
         if (mounted) await showServerDialog(context);
       }
+      if (!Store.instance.autoUpdate) return;
+      await Future.delayed(const Duration(seconds: 3));
+      try {
+        final info = await Updater.check();
+        if (info != null && mounted) await showUpdateDialogOnce(context, info);
+      } catch (_) {
+        // Ohne Netz oder iPhone-Version noch im Bau: kein Hinweis
+      }
       return;
     }
     await Updater.init();

@@ -33,12 +33,27 @@ class SettingsPage extends StatelessWidget {
           padding: const EdgeInsets.only(bottom: 32),
           children: [
             _h('App'),
-            if (!Platform.isAndroid)
+            if (!Platform.isAndroid) ...[
               ListTile(
                 title: Text('Lyra ${Updater.version}'),
-                subtitle: const Text('Updates kommen über SideStore', style: TextStyle(color: kMuted)),
+                subtitle: ValueListenableBuilder<UpdateInfo?>(
+                  valueListenable: Updater.available,
+                  builder: (c, u, _) => Text(
+                      u == null ? 'Tippe, um nach Updates zu suchen (Installation über SideStore)' : 'Update auf ${u.version} in SideStore verfügbar',
+                      style: TextStyle(color: u == null ? kMuted : accent)),
+                ),
                 trailing: const Icon(Icons.system_update_rounded),
+                onTap: () => checkForUpdate(context),
               ),
+              SwitchListTile(
+                title: const Text('Beim Start nach Updates suchen'),
+                subtitle: const Text('Zeigt einen Hinweis, wenn in SideStore eine neue Version bereitliegt',
+                    style: TextStyle(color: kMuted)),
+                value: s.autoUpdate,
+                activeColor: accent,
+                onChanged: s.setAutoUpdate,
+              ),
+            ],
             if (Platform.isAndroid) ...[
             ListTile(
               title: Text('Lyra ${Updater.version}'),
