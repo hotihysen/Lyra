@@ -24,6 +24,11 @@ class Store extends ChangeNotifier {
   Map<String, String> ytIds = {};
   Map<String, Book> books = {};
   Map<String, Map> progress = {};
+  /// Wie oft ein Titel gestartet wurde (für «Mein Mix»).
+  Map<String, int> plays = {};
+  /// Zwischengespeicherter Tagesmix.
+  List<Track> mix = [];
+  String mixDay = '';
   int crossfade = 4;
   String? ytClient;
   String? invHost;
@@ -49,6 +54,9 @@ class Store extends ChangeNotifier {
     // allgemeine YouTube-Suche ('yt') war die Ursache falscher Titel und wird verworfen.
     ytIds = Map<String, String>.from((_box.get('ytm') as Map?) ?? const {});
     if (_box.containsKey('yt')) _box.delete('yt');
+    plays = {for (final e in ((_box.get('plays') as Map?) ?? const {}).entries) '${e.key}': (e.value as num).toInt()};
+    mix = _list('mix', Track.fromJson);
+    mixDay = (_box.get('mixDay') as String?) ?? '';
     final p = (_box.get('progress') as Map?) ?? const {};
     progress = {for (final e in p.entries) '${e.key}': Map.from(e.value as Map)};
     final dir = await getApplicationDocumentsDirectory();
@@ -176,10 +184,26 @@ class Store extends ChangeNotifier {
   }
 
   void addRecent(Track t) {
+    if (!t.isBook) {
+      plays[t.id] = (plays[t.id] ?? 0) + 1;
+      if (plays.length > 3000) {
+        // Seltenste Einträge vergessen
+        final keep = (plays.entries.toList()..sort((a, b) => b.value.compareTo(a.value))).take(2000);
+        plays = {for (final e in keep) e.key: e.value};
+      }
+      _box.put('plays', plays);
+    }
     recent.removeWhere((e) => e.id == t.id);
     recent.insert(0, t);
     if (recent.length > 40) recent = recent.sublist(0, 40);
     _put('recent', recent);
+  }
+
+  void saveMix(List<Track> tracks, String day) {
+    mix = tracks;
+    mixDay = day;
+    _box.put('mixDay', day);
+    _put('mix', mix);
   }
 
   // Zuordnung alter Titel (Deezer-ID) zur YouTube-Music-Video-ID

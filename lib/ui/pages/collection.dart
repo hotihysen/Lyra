@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../api/ytmusic.dart';
 import '../../data/downloads.dart';
+import '../../data/mix.dart';
 import '../../data/models.dart';
 import '../../data/store.dart';
 import '../../main.dart';
@@ -348,6 +349,55 @@ class LikedPage extends StatelessWidget {
           actions: [_DownloadAllButton(List.of(s.liked))],
         ));
   }
+}
+
+// ---------- Mein Mix ----------
+
+class MixPage extends StatefulWidget {
+  const MixPage({super.key});
+  @override
+  State<MixPage> createState() => _MixPageState();
+}
+
+class _MixPageState extends State<MixPage> {
+  late Future<List<Track>> _f = MyMix.get();
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Track>>(
+      future: _f,
+      builder: (context, s) {
+        if (s.hasError) return _failed('Mix konnte nicht erstellt werden', () => setState(() => _f = MyMix.get(force: true)));
+        if (!s.hasData) return _loading();
+        final tracks = s.data!;
+        return CollectionView(
+          title: 'Mein Mix',
+          subtitle: 'Aus deinen Lieblingssongs und meistgehörten Titeln · ${tracks.length} Titel · täglich neu',
+          art: const GradientArt(icon: Icons.auto_awesome_rounded, size: 230, radius: 6),
+          tracks: tracks,
+          emptyText: 'Like ein paar Songs oder hör etwas Musik,\ndann entsteht hier dein Mix.',
+          actions: [
+            IconButton(
+              tooltip: 'Neu mischen',
+              icon: const Icon(Icons.refresh_rounded),
+              onPressed: () => setState(() => _f = MyMix.get(force: true)),
+            ),
+            _DownloadAllButton(tracks),
+          ],
+        );
+      },
+    );
+  }
+}
+
+/// Mix sofort abspielen (für Knöpfe auf der Startseite).
+Future<void> playMyMix(BuildContext context) async {
+  final tracks = await MyMix.get();
+  if (tracks.isEmpty) {
+    if (context.mounted) toast(context, 'Like ein paar Songs, dann entsteht dein Mix');
+    return;
+  }
+  await audio.playTracks(tracks);
 }
 
 // ---------- Downloads ----------

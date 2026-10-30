@@ -7,6 +7,7 @@ import 'package:just_audio/just_audio.dart';
 
 import '../api/ytmusic.dart';
 import '../api/youtube.dart';
+import '../data/mix.dart';
 import '../data/models.dart';
 import '../data/store.dart';
 
@@ -71,13 +72,60 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
         if (identical(pl, _p)) _broadcast();
       });
       pl.processingStateStream.listen((st) {
-        if (identical(pl, _p) && st == ProcessingState.completed && !_fading) _onCompleted();
+        if (identical(pl, _p) && st == ProcessingState.completed && !_fading && _watchToken != _loadToken) {
+          _watchToken = _loadToken;
+          _onCompleted();
+        }
       });
       pl.positionStream.listen((pos) {
         if (identical(pl, _p)) _checkCrossfade(pos);
       });
     }
     Timer.periodic(const Duration(seconds: 5), (_) => _saveBookProgress());
+    Timer.periodic(const Duration(seconds: 1), (_) => _endWatchdog());
+  }
+
+  // ---------- Wächter fürs Titelende ----------
+  //
+  // Mit Bluetooth-Geräten meldet der Android-Player das Ende eines Titels manchmal nicht:
+  // Die Position bleibt am Ende stehen, der Zustand bleibt «spielt», und Auto oder Kopfhörer
+  // zählen die Zeit endlos weiter. Steht die Position einige Sekunden am Ende (oder
+  // klar darüber hinaus), wird wie bei einem normalen Titelende weitergeschaltet.
+
+  int _stuckTicks = 0;
+  Duration _lastPos = Duration.zero;
+  int _watchToken = -1;
+
+  void _endWatchdog() {
+    final p = _p;
+    final t = current.value;
+    if (t == null || !p.playing || loading.value || _fading || p.processingState == ProcessingState.completed) {
+      _stuckTicks = 0;
+      return;
+    }
+    // Nur die echte Länge der Audiodatei; Katalogangaben weichen oft um Sekunden ab
+    final dur = p.duration;
+    final pos = p.position;
+    if (dur == null || dur < const Duration(seconds: 10)) {
+      _stuckTicks = 0;
+      _lastPos = pos;
+      return;
+    }
+    final atEnd = pos >= dur - const Duration(milliseconds: 1500);
+    final pastEnd = pos > dur + const Duration(seconds: 3);
+    final notMoving = (pos - _lastPos).abs() < const Duration(milliseconds: 300);
+    _lastPos = pos;
+    if (pastEnd || (atEnd && notMoving)) {
+      _stuckTicks++;
+    } else {
+      _stuckTicks = 0;
+    }
+    // Drei Sekunden hängen am Ende: als beendet behandeln (nur einmal pro Titel)
+    if (_stuckTicks >= 3 && _watchToken != _loadToken) {
+      _stuckTicks = 0;
+      _watchToken = _loadToken;
+      _onCompleted();
+    }
   }
 
   // ---------- Status an System/Benachrichtigung melden ----------
@@ -294,6 +342,7 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
       return;
     }
     if (repeat.value == RepeatSetting.one) {
+      _watchToken = -1;
       _p.seek(Duration.zero);
       _p.play();
       return;
@@ -543,7 +592,8 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
   /// Liste und Präfix zu einem Ordner des Menüs.
   List<Track>? _autoList(String folder) {
     final s = Store.instance;
-    if (folder == 'recent') return s.recent.where((t) => !t.isBook).toList();
+    if (folder == 'history') return s.recent.where((t) => !t.isBook).toList();
+    if (folder == 'mymix') return List.of(s.mix);
     if (folder == 'liked') return List.of(s.liked);
     if (folder == 'downloads') return s.downloads.values.toList();
     if (folder.startsWith('pl:')) return s.playlist(folder.substring(3))?.tracks.toList();
@@ -558,7 +608,8 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
     switch (parentMediaId) {
       case _autoRoot:
         return [
-          _folder('recent', 'Zuletzt gehört'),
+          _folder('mymix', 'Mein Mix', subtitle: 'Aus deinen Lieblingssongs'),
+          _folder('history', 'Zuletzt gehört', subtitle: '${s.recent.where((t) => !t.isBook).length} Titel'),
           _folder('liked', 'Favoriten', subtitle: '${s.liked.length} Titel'),
           _folder('playlists', 'Playlists', subtitle: '${s.playlists.length} Playlists'),
           _folder('downloads', 'Downloads', subtitle: '${s.downloads.length} Titel offline'),
@@ -567,7 +618,12 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
       case AudioService.recentRootId:
         // Für «Weiterhören» im Auto: der zuletzt gespielte Titel
         final cur = current.value ?? (s.recent.isNotEmpty ? s.recent.first : null);
-        return cur == null ? [] : [_autoItem('recent', cur)];
+        return cur == null ? [] : [_autoItem('history', cur)];
+      case 'mymix':
+        try {
+          await MyMix.get();
+        } catch (_) {}
+        return [for (final t in s.mix) _autoItem('mymix', t)];
       case 'playlists':
         return [
           for (final p in s.playlists) _folder('pl:${p.id}', p.name, subtitle: '${p.tracks.length} Titel'),
@@ -625,8 +681,15 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
   Future<void> playFromSearch(String query, [Map<String, dynamic>? extras]) async {
     final q = query.trim();
     if (q.isEmpty) {
-      // Ohne Suchbegriff: Favoriten, sonst Zuletzt gehört
+      // Ohne Suchbegriff («Spiele Musik auf Lyra»): Mein Mix, sonst Favoriten
       final s = Store.instance;
+      try {
+        final mix = await MyMix.get();
+        if (mix.isNotEmpty) {
+          await playTracks(mix);
+          return;
+        }
+      } catch (_) {}
       final list = s.liked.isNotEmpty ? s.liked : s.recent.where((t) => !t.isBook).toList();
       if (list.isNotEmpty) await playShuffled(list);
       return;

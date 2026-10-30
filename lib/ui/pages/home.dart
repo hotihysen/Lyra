@@ -121,6 +121,7 @@ class _HomePageState extends State<HomePage> {
                     children: [
                       Pill('Musik', selected: true, onTap: () {}),
                       Pill('Hörbücher', onTap: () => switchTab(3)),
+                      Pill('Mein Mix', onTap: () => openPage(const MixPage())),
                       Pill('Lieblingssongs', onTap: () => openPage(const LikedPage())),
                       Pill('Downloads', onTap: () => openPage(const DownloadsPage())),
                     ],
@@ -141,6 +142,7 @@ class _HomePageState extends State<HomePage> {
                       TextButton(onPressed: () => setState(() => _f = loadHome()), child: const Text('Erneut laden')),
                     ]),
                   ),
+                if (s.liked.isNotEmpty || s.recent.any((t) => !t.isBook)) _MixBanner(),
                 Carousel(
                   title: 'Zuletzt gehört',
                   size: 130,
@@ -338,6 +340,48 @@ class _QuickTile extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 13)),
+              ),
+              const SizedBox(width: 6),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Grosse Karte «Mein Mix» oben auf der Startseite.
+class _MixBanner extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    final accent = Theme.of(context).colorScheme.primary;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 18, 16, 4),
+      child: Material(
+        color: kSurface,
+        borderRadius: BorderRadius.circular(10),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () => openPage(const MixPage()),
+          child: Row(
+            children: [
+              const GradientArt(icon: Icons.auto_awesome_rounded, size: 84, radius: 0),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text('Mein Mix', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+                    SizedBox(height: 4),
+                    Text('Aus deinen Lieblingssongs und meistgehörten Titeln',
+                        maxLines: 2, overflow: TextOverflow.ellipsis, style: TextStyle(color: kMuted)),
+                  ],
+                ),
+              ),
+              IconButton(
+                iconSize: 44,
+                icon: Icon(Icons.play_circle_fill_rounded, color: accent),
+                onPressed: () => playMyMix(context),
               ),
               const SizedBox(width: 6),
             ],
