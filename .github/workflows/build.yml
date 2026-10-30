@@ -46,8 +46,8 @@ jobs:
             echo "::error title=Analyse fehlgeschlagen::$msg"
             exit 1
           fi
-          w=$(grep -cE "warning •" analyze.log || true)
-          echo "::notice title=Analyse::keine Fehler, $w Warnungen"
+          w=$(grep -E "warning •" analyze.log | head -15 | sed 's/%/%25/g' | cut -c1-250 | awk 'BEGIN{ORS="%0A"}{print}')
+          echo "::notice title=Analyse::keine Fehler%0A$w"
 
       - name: Tests der Wiedergabelogik
         run: |

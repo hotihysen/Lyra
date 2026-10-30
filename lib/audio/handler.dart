@@ -590,11 +590,16 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
     if (!_end.claim(g)) return; // Titelende pro Vorgang genau einmal
     _log('[$g] Titelende ($trigger)');
     if (sleepAfterTrack.value) {
+      // Sleep-Timer «Ende des Titels»: anhalten, nächsten Titel pausiert bereitstellen
       sleepAfterTrack.value = false;
       _wantPlay = false;
       unawaited(_p.pause());
       _setPhase(PlayPhase.paused);
-      _scheduleSave(now: true);
+      if (q.index + 1 < q.length) {
+        unawaited(_load(q.index + 1, trigger: 'Sleep-Timer (pausiert)'));
+      } else {
+        _scheduleSave(now: true);
+      }
       return;
     }
     if (repeat.value == RepeatSetting.one) {
@@ -1045,6 +1050,8 @@ class LyraAudioHandler extends BaseAudioHandler with SeekHandler {
   @override
   Future<void> skipToNext() async {
     _retry.onUserAction();
+    // Nach einem Fehler bedeutet «Weiter»: den nächsten Titel spielen
+    if (phase.value == PlayPhase.failed || phase.value == PlayPhase.ended) _wantPlay = true;
     _log('Weiter (Nutzer)');
     await _advance('Weiter (Nutzer)');
   }
